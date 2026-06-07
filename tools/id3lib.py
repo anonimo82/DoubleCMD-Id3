@@ -3,6 +3,7 @@ id3lib.py - ID3v1 and ID3v2 tag read/write library for Python
 Supports reading ID3v1+v2, writing ID3v2.3 and ID3v1
 """
 
+import re
 import struct
 import os
 
@@ -264,15 +265,22 @@ def build_filename(pattern, tag, ext):
     track_val = tag.get('track','')
     result = result.replace('%track%',  track_val.zfill(2) if track_val else '')
     result = result.replace('%ext%',    ext                                     )
-    # Collapse multiple spaces and clean up orphaned separators
-    import re
-    # Remove separators that appear directly before the extension
-    result = re.sub(r'[\s_-]+' + re.escape(ext) + r'$', ext, result)
-    # Remove leading separators
-    result = re.sub(r'^[\s_-]+', '', result)
-    # Collapse runs of whitespace
-    result = re.sub(r'  +', ' ', result)
-    result = result.strip()
-    if not result.lower().endswith(ext.lower()):
-        result += ext
-    return result
+
+    # Strip the extension, clean the stem, then re-add it.
+    if result.lower().endswith(ext.lower()):
+        stem = result[:-len(ext)]
+    else:
+        stem = result
+
+    # Collapse repeated separator sequences left by empty fields (e.g. ' -  - ')
+    prev = None
+    while prev != stem:
+        prev = stem
+        stem = re.sub(r' *- *- *', ' - ', stem)
+
+    stem = re.sub(r'[ _-]+$', '', stem)    # trailing orphaned separators
+    stem = re.sub(r'^[ _-]+', '', stem)    # leading orphaned separators
+    stem = re.sub(r' {2,}', ' ', stem)     # consecutive spaces
+    stem = stem.strip()
+
+    return stem + ext

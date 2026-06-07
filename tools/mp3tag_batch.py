@@ -92,7 +92,6 @@ class BatchEditor(tk.Tk):
             filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
         if not paths:
             return
-        start_idx = len(self.files)
         self.files.extend(paths)
         # Append new rows without reloading existing ones (preserves unsaved changes)
         for path in paths:
@@ -178,8 +177,9 @@ class BatchEditor(tk.Tk):
         errors = []
         for (row_idx, key), val in self.modified.items():
             self.tags[row_idx][key] = val
+        modified_rows = {ri for ri, _ in self.modified}
         for i, path in enumerate(self.files):
-            if any(ri == i for ri, _ in self.modified):
+            if i in modified_rows:
                 if not id3lib.write_tags(path, self.tags[i]):
                     errors.append(os.path.basename(path))
         self.modified.clear()
