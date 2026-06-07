@@ -120,7 +120,7 @@ class RenameDialog(tk.Tk):
                 continue
             new_path = os.path.join(os.path.dirname(path), nn)
             if os.path.exists(new_path) and new_path != path:
-                errors.append(f'{old} (file gia esistente)')
+                errors.append(f'{old} (file already exists)')
                 continue
             try:
                 os.rename(path, new_path)
