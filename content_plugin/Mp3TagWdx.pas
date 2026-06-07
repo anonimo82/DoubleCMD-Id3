@@ -62,7 +62,7 @@ type
 
 // ---- Implementazioni ----
 
-function GetSupportedField(FieldIndex: Integer;
+function ContentGetSupportedField(FieldIndex: Integer;
                            FieldName: PAnsiChar;
                            Units    : PAnsiChar;
                            MaxLen   : Integer): Integer; cdecl;
@@ -84,7 +84,7 @@ begin
   end;
 end;
 
-function GetValue(FileName    : PAnsiChar;
+function ContentGetValue(FileName    : PAnsiChar;
                   FieldIndex  : Integer;
                   UnitIndex   : Integer;
                   FieldValue  : Pointer;
@@ -160,8 +160,8 @@ end;
 // ---- Esportazione simboli ----
 
 exports
-  GetSupportedField,
-  GetValue;
+  ContentGetSupportedField,
+  ContentGetValue;
 
 begin
 end.

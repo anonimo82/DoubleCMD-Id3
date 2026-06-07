@@ -32,14 +32,6 @@
         <IsPartOfProject Value="True"/>
       </Unit1>
     </Units>
-    <RequiredPackages Count="2">
-      <Item1>
-        <PackageName Value="LCL"/>
-      </Item1>
-      <Item2>
-        <PackageName Value="LCLBase"/>
-      </Item2>
-    </RequiredPackages>
   </ProjectOptions>
   <Compiler>
     <Options>
