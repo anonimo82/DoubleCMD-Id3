@@ -79,35 +79,6 @@ def read_id3v1(path):
         pass
     return tag
 
-def _write_id3v1(f, tag):
-    """Write/replace ID3v1 tag at end of file (file already open in r+b mode)."""
-    f.seek(0, 2)
-    size = f.tell()
-    # Remove existing v1 tag
-    if size >= 128:
-        f.seek(-128, 2)
-        if f.read(3) == b'TAG':
-            f.seek(-128, 2)
-            f.truncate()
-
-    def enc(s, n):
-        b = str(s).encode('latin-1', errors='replace')[:n]
-        return b.ljust(n, b'\x00')
-
-    data = b'TAG'
-    data += enc(tag.get('title',''),   30)
-    data += enc(tag.get('artist',''),  30)
-    data += enc(tag.get('album',''),   30)
-    data += enc(tag.get('year',''),     4)
-    data += enc(tag.get('comment',''), 28)
-    track = int(tag.get('track','0') or '0')
-    data += b'\x00' + bytes([min(track, 255)])
-    genre_name = tag.get('genre','')
-    gi = GENRES.index(genre_name) if genre_name in GENRES else 255
-    data += bytes([gi])
-    f.seek(0, 2)
-    f.write(data)
-
 # ------------------------------------------------------------------ ID3v2 read
 
 def _read_frame_text(data, frame_id, version):
@@ -290,7 +261,8 @@ def build_filename(pattern, tag, ext):
     result = result.replace('%album%',  sanitize_filename(tag.get('album','')  ))
     result = result.replace('%year%',   sanitize_filename(tag.get('year','')   ))
     result = result.replace('%genre%',  sanitize_filename(tag.get('genre','')  ))
-    result = result.replace('%track%',  tag.get('track','').zfill(2)            )
+    track_val = tag.get('track','')
+    result = result.replace('%track%',  track_val.zfill(2) if track_val else '')
     result = result.replace('%ext%',    ext                                     )
     while '  ' in result:
         result = result.replace('  ', ' ')

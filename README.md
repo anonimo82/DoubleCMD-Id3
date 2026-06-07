@@ -51,7 +51,7 @@ Bulk-rename MP3 files using their ID3 tags with a live preview.
 ```
 %track% - %artist% - %title%       →  03 - Pink Floyd - Money.mp3
 %artist% - %album% - %track% %title%  →  Pink Floyd - Dark Side - 03 Money.mp3
-%year% %album%/%track% - %title%   →  1973 Dark Side/03 - Money.mp3
+%year% - %album% - %track% - %title%  →  1973 - Dark Side - 03 - Money.mp3
 ```
 
 ### Tag columns in DoubleCMD (via audioinfo plugin)

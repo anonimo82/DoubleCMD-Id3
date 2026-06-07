@@ -176,7 +176,7 @@ class BatchEditor(tk.Tk):
         if errors:
             messagebox.showerror('Mp3Tag', 'Errors saving:\n' + '\n'.join(errors))
         else:
-            messagebox.showinfo('Mp3Tag', f'Saved {len(self.files)} files successfully!')
+            messagebox.showinfo('Mp3Tag', f'Saved successfully!')
 
 def main():
     args = sys.argv[1:]
