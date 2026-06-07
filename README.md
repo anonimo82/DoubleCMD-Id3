@@ -168,9 +168,8 @@ For each tag field you want to display:
 | Channels        | `[Plugin(audioinfo).Channels()]`             |  60 px        | e.g. `2`                       |
 
 > **Tip:** A practical Music column set typically uses: Artist, Title, Album,
-> Track, Year, Genre, Duration, and Bitrate. Add Comment, Sample rate, and
-> Channels only if you need them — they slow down directory scanning when
-> many files are present.
+> Track, Year, Genre, Duration, and Bitrate. Sample rate and Channels are
+> available but rarely needed for day-to-day browsing.
 
 #### 2d — Activate the column set
 
@@ -201,7 +200,7 @@ tool is a common workflow for quickly ordering an album.
   re-install DoubleCMD
 - On Linux, if columns are empty for all files, the audioinfo plugin may need
   the `libmpg123` or `libid3tag` shared library — install it via your package
-  manager (`sudo apt install libmpg123-dev` on Debian/Ubuntu)
+  manager (`sudo apt install libmpg123-0` on Debian/Ubuntu)
 
 **The `Date` field shows a full ISO date instead of just the year:**
 - Some taggers (e.g. MusicBrainz Picard, foobar2000) write the full date
