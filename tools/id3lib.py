@@ -10,8 +10,10 @@ Fixes applied:
     'utf-16', which requires a BOM and would garble BOM-less UTF-16BE data
   - _read_frame_text: added enc==2 (UTF-16BE) branch — previously missing,
     causing all text tags to read as '' on ID3v2.4 files with UTF-16BE encoding
-  - _read_frame_text: UTF-16 rstrip now strips only null bytes before decoding,
-    not the byte-set {0x00, 0xff, 0xfe} which could truncate valid data
+  - _read_frame_text / _read_comm_frame: UTF-16LE (enc=1) now uses pair-wise
+    null stripping via _rstrip_utf16(); rstrip(b'\x00') was removing the
+    trailing low-byte of the last ASCII character (e.g. 't' = 74 00 in LE),
+    leaving an odd-length buffer that the utf-16 codec decoded as U+FFFD
   - TCON parsing: '(N)freeform' now correctly uses the free-form text;
     special codes (RX)=Remix and (CR)=Cover are resolved explicitly
   - build_filename: guarded result[:-len(ext)] against len(ext)==0, which
@@ -100,6 +102,28 @@ def read_id3v1(path):
 
 # ------------------------------------------------------------------ ID3v2 read
 
+def _rstrip_utf16(b):
+    """
+    Strip trailing null padding from UTF-16-LE data without corrupting the
+    last codepoint.
+
+    In UTF-16-LE every ASCII character is stored as <char_byte> <0x00>.
+    Python's bytes.rstrip(b'\x00') removes individual trailing zero bytes,
+    so the closing 0x00 of the last ASCII character (e.g. 't' = 74 00) gets
+    eaten, leaving an odd-length buffer.  The utf-16 codec then cannot decode
+    the final codepoint and emits U+FFFD instead.
+
+    The correct approach is to strip only complete 0x0000 PAIRS — which are
+    genuine null padding — and leave the data byte-aligned.
+
+    UTF-16BE (enc=2) does NOT need this treatment: in BE the low byte (the
+    char value) comes last, so for ASCII chars it is non-zero and rstrip
+    never touches it.
+    """
+    while len(b) >= 2 and b[-2:] == b'\x00\x00':
+        b = b[:-2]
+    return b
+
 def _read_frame_text(data, frame_id, version):
     """
     Read a standard text frame (TIT2, TPE1, TALB, etc.).
@@ -128,9 +152,11 @@ def _read_frame_text(data, frame_id, version):
             if enc == 0:
                 return raw.rstrip(b'\x00').decode('latin-1', errors='replace').strip()
             elif enc == 1:
-                # UTF-16 with BOM. Strip only null bytes; rstrip(b'\x00\xff\xfe')
-                # is a byte-set that would silently eat valid 0xff/0xfe tail bytes.
-                return raw.rstrip(b'\x00').decode('utf-16', errors='replace').strip()
+                # UTF-16 with BOM. Use _rstrip_utf16() instead of rstrip(b'\x00'):
+                # the latter strips individual zero bytes and corrupts the last
+                # ASCII character in UTF-16-LE (stored as <char> 00), producing
+                # a replacement character U+FFFD for the final codepoint.
+                return _rstrip_utf16(raw).decode('utf-16', errors='replace').strip()
             elif enc == 2:
                 # FIX #1: UTF-16BE without BOM (common in ID3v2.4 files from
                 # foobar2000, MusicBrainz Picard, beets). Previously this branch
@@ -186,8 +212,13 @@ def _read_comm_frame(data, version):
                 null_pos = rest.find(b'\x00')
                 if null_pos != -1:
                     rest = rest[null_pos+1:]
-            # Decode actual comment text
-            rest = rest.rstrip(b'\x00')
+            # Decode actual comment text.
+            # For UTF-16LE (enc=1) strip null PAIRS to avoid corrupting the last
+            # ASCII codepoint; single-byte rstrip is correct for enc 0, 2, 3.
+            if enc == 1:
+                rest = _rstrip_utf16(rest)
+            else:
+                rest = rest.rstrip(b'\x00')
             if enc == 0:
                 return rest.decode('latin-1', errors='replace').strip()
             elif enc == 1:
