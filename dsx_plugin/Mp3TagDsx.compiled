@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<CONFIG>
-  <Compiler Value="C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fpc.exe" Date="1549053250"/>
-  <Params Value="-MObjFPC -Scgi -O1 -g -gl -l -vewnhibq -FuC:\Users\Io\Documents\GitHub\DoubleCMD-Id3\dsx_plugin\ -oC:\Users\Io\Documents\GitHub\DoubleCMD-Id3\dsx_plugin\Mp3TagDsx.exe Mp3TagDsx.pas"/>
-</CONFIG>

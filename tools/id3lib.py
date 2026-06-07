@@ -1,6 +1,6 @@
 """
 id3lib.py - Lettura e scrittura tag ID3v1 e ID3v2 per Python
-Nessuna dipendenza esterna - solo stdlib.
+Supporta lettura ID3v1+v2, scrittura ID3v2.3 e ID3v1
 """
 
 import struct
@@ -36,7 +36,6 @@ GENRES = [
 ]
 
 def _decode(b):
-    """Decodifica bytes in stringa, rimuove null e spazi."""
     for enc in ('utf-8', 'latin-1', 'cp1252'):
         try:
             return b.rstrip(b'\x00').decode(enc).strip()
@@ -46,6 +45,14 @@ def _decode(b):
 
 def _syncsafe_to_int(b):
     return (b[0] << 21) | (b[1] << 14) | (b[2] << 7) | b[3]
+
+def _int_to_syncsafe(n):
+    return bytes([
+        (n >> 21) & 0x7f,
+        (n >> 14) & 0x7f,
+        (n >>  7) & 0x7f,
+        (n      ) & 0x7f,
+    ])
 
 # ------------------------------------------------------------------ ID3v1
 
@@ -72,44 +79,39 @@ def read_id3v1(path):
         pass
     return tag
 
-def write_id3v1(path, tag):
-    """Scrive (o sostituisce) il tag ID3v1 in coda al file."""
-    try:
-        with open(path, 'r+b') as f:
-            size = os.path.getsize(path)
-            if size >= 128:
-                f.seek(-128, 2)
-                if f.read(3) == b'TAG':
-                    f.seek(-128, 2)
-                    f.truncate()
-            f.seek(0, 2)
+def _write_id3v1(f, tag):
+    """Scrive/sostituisce tag ID3v1 alla fine del file (file già aperto in r+b)."""
+    f.seek(0, 2)
+    size = f.tell()
+    # Rimuovi v1 esistente
+    if size >= 128:
+        f.seek(-128, 2)
+        if f.read(3) == b'TAG':
+            f.seek(-128, 2)
+            f.truncate()
 
-            def enc(s, n):
-                b = s.encode('latin-1', errors='replace')[:n]
-                return b.ljust(n, b'\x00')
+    def enc(s, n):
+        b = str(s).encode('latin-1', errors='replace')[:n]
+        return b.ljust(n, b'\x00')
 
-            data = b'TAG'
-            data += enc(tag.get('title',''),   30)
-            data += enc(tag.get('artist',''),  30)
-            data += enc(tag.get('album',''),   30)
-            data += enc(tag.get('year',''),     4)
-            data += enc(tag.get('comment',''), 28)
-            track = int(tag.get('track','0') or '0')
-            data += b'\x00' + bytes([min(track, 255)])
-            genre_name = tag.get('genre','')
-            gi = GENRES.index(genre_name) if genre_name in GENRES else 255
-            data += bytes([gi])
-            f.write(data)
-        return True
-    except Exception as e:
-        print(f'write_id3v1 error: {e}')
-        return False
+    data = b'TAG'
+    data += enc(tag.get('title',''),   30)
+    data += enc(tag.get('artist',''),  30)
+    data += enc(tag.get('album',''),   30)
+    data += enc(tag.get('year',''),     4)
+    data += enc(tag.get('comment',''), 28)
+    track = int(tag.get('track','0') or '0')
+    data += b'\x00' + bytes([min(track, 255)])
+    genre_name = tag.get('genre','')
+    gi = GENRES.index(genre_name) if genre_name in GENRES else 255
+    data += bytes([gi])
+    f.seek(0, 2)
+    f.write(data)
 
-# ------------------------------------------------------------------ ID3v2 (lettura)
+# ------------------------------------------------------------------ ID3v2 read
 
 def _read_frame_text(data, frame_id, version):
-    """Estrae un frame testuale dal blob ID3v2."""
-    pos = 10  # dopo l'header
+    pos = 10
     while pos + 10 < len(data):
         fid = data[pos:pos+4]
         if fid == b'\x00\x00\x00\x00':
@@ -124,11 +126,11 @@ def _read_frame_text(data, frame_id, version):
         if fid == frame_id.encode():
             enc = data[pos]
             raw = data[pos+1:pos+sz]
-            if enc == 0:    # Latin-1
+            if enc == 0:
                 return raw.rstrip(b'\x00').decode('latin-1', errors='replace').strip()
-            elif enc == 1:  # UTF-16
+            elif enc == 1:
                 return raw.rstrip(b'\x00\xff\xfe').decode('utf-16', errors='replace').strip()
-            elif enc == 3:  # UTF-8
+            elif enc == 3:
                 return raw.rstrip(b'\x00').decode('utf-8', errors='replace').strip()
         pos += sz
     return ''
@@ -145,6 +147,7 @@ def read_id3v2(path):
         with open(path, 'rb') as f:
             data = f.read(tag_size)
         tag['_has_v2'] = True
+        tag['_v2_size'] = tag_size
         tag['title']   = _read_frame_text(data, 'TIT2', version)
         tag['artist']  = _read_frame_text(data, 'TPE1', version)
         tag['album']   = _read_frame_text(data, 'TALB', version)
@@ -153,7 +156,6 @@ def read_id3v2(path):
         track = _read_frame_text(data, 'TRCK', version)
         tag['track']   = track.split('/')[0] if '/' in track else track
         tag['genre']   = _read_frame_text(data, 'TCON', version)
-        # "(12)" -> nome genere
         g = tag['genre']
         if g.startswith('(') and ')' in g:
             try:
@@ -166,34 +168,122 @@ def read_id3v2(path):
         pass
     return tag
 
+# ------------------------------------------------------------------ ID3v2 write
+
+def _make_text_frame(frame_id, text):
+    """Crea un frame ID3v2.3 con encoding UTF-8 (enc=3)."""
+    encoded = text.encode('utf-8')
+    payload = b'\x03' + encoded  # encoding byte + data
+    size = struct.pack('>I', len(payload))
+    flags = b'\x00\x00'
+    return frame_id.encode() + size + flags + payload
+
+def write_id3v2(path, tag):
+    """
+    Riscrive i tag ID3v2.3 nel file mantenendo tutto il resto intatto.
+    Strategia: legge il file audio (dopo il tag v2), riscrive v2 + audio.
+    """
+    try:
+        with open(path, 'rb') as f:
+            header = f.read(10)
+
+        # Determina dove inizia l'audio
+        if header[:3] == b'ID3':
+            old_tag_size = _syncsafe_to_int(header[6:10]) + 10
+        else:
+            old_tag_size = 0
+
+        # Leggi la parte audio (tutto dopo il vecchio tag v2)
+        with open(path, 'rb') as f:
+            f.seek(old_tag_size)
+            audio_data = f.read()
+
+        # Rimuovi eventuale ID3v1 dalla fine dell'audio
+        if len(audio_data) >= 128 and audio_data[-128:-125] == b'TAG':
+            audio_data = audio_data[:-128]
+
+        # Costruisci i nuovi frame
+        frames = b''
+        field_map = {
+            'title':   'TIT2',
+            'artist':  'TPE1',
+            'album':   'TALB',
+            'year':    'TYER',
+            'track':   'TRCK',
+            'genre':   'TCON',
+            'comment': 'COMM',
+        }
+        for key, fid in field_map.items():
+            val = str(tag.get(key, '') or '')
+            if val:
+                if fid == 'COMM':
+                    # Frame COMM ha formato speciale: enc + lang + desc + text
+                    encoded = val.encode('utf-8')
+                    payload = b'\x03' + b'eng' + b'\x00' + encoded
+                    size = struct.pack('>I', len(payload))
+                    frames += b'COMM' + size + b'\x00\x00' + payload
+                else:
+                    frames += _make_text_frame(fid, val)
+
+        # Aggiungi padding
+        padding = b'\x00' * 256
+
+        # Header ID3v2.3
+        tag_content = frames + padding
+        tag_size = _int_to_syncsafe(len(tag_content))
+        new_header = b'ID3' + b'\x03\x00' + b'\x00' + tag_size
+
+        # Scrivi tutto in una sola operazione
+        with open(path, 'wb') as f:
+            f.write(new_header)
+            f.write(tag_content)
+            f.write(audio_data)
+            # Aggiungi ID3v1 in coda per compatibilita
+            def enc(s, n):
+                b = str(s).encode("latin-1", errors="replace")[:n]
+                return b.ljust(n, bytes([0]))
+            v1 = b"TAG"
+            v1 += enc(tag.get("title",""),   30)
+            v1 += enc(tag.get("artist",""),  30)
+            v1 += enc(tag.get("album",""),   30)
+            v1 += enc(tag.get("year",""),     4)
+            v1 += enc(tag.get("comment",""), 28)
+            track = int(tag.get("track","0") or "0")
+            v1 += bytes([0]) + bytes([min(track, 255)])
+            genre_name = tag.get("genre","")
+            gi = GENRES.index(genre_name) if genre_name in GENRES else 255
+            v1 += bytes([gi])
+            f.write(v1)
+
+        return True
+    except Exception as e:
+        print(f'write_id3v2 error: {e}')
+        return False
+
 # ------------------------------------------------------------------ API pubblica
 
 def read_tags(path):
-    """Legge i tag del file: ID3v2 ha priorità su ID3v1."""
     tag = read_id3v2(path)
     v1  = read_id3v1(path)
-    # Riempi i campi mancanti con v1
     for k in ('title','artist','album','year','track','genre','comment'):
         if not tag.get(k) and v1.get(k):
             tag[k] = v1[k]
     tag.setdefault('_has_v1', v1.get('_has_v1', False))
-    tag.setdefault('_has_v2', tag.get('_has_v2', False))
+    tag.setdefault('_has_v2', False)
     for k in ('title','artist','album','year','track','genre','comment'):
         tag.setdefault(k, '')
     return tag
 
 def write_tags(path, tag):
-    """Scrive i tag come ID3v1 (semplice e universale)."""
-    return write_id3v1(path, tag)
+    """Scrive ID3v2.3 + ID3v1."""
+    return write_id3v2(path, tag)
 
 def sanitize_filename(s):
-    """Rimuove caratteri non validi per nomi file Windows."""
     for c in r'/\:*?"<>|':
         s = s.replace(c, '_')
     return s.strip()
 
 def build_filename(pattern, tag, ext):
-    """Applica il pattern di rinomina usando i tag."""
     result = pattern
     result = result.replace('%title%',  sanitize_filename(tag.get('title','')  ))
     result = result.replace('%artist%', sanitize_filename(tag.get('artist','') ))
@@ -202,7 +292,6 @@ def build_filename(pattern, tag, ext):
     result = result.replace('%genre%',  sanitize_filename(tag.get('genre','')  ))
     result = result.replace('%track%',  tag.get('track','').zfill(2)            )
     result = result.replace('%ext%',    ext                                     )
-    # Pulisci spazi multipli
     while '  ' in result:
         result = result.replace('  ', ' ')
     result = result.strip()

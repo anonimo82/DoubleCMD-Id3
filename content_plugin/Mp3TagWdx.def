@@ -1,5 +1,0 @@
-LIBRARY Mp3TagWdx
-EXPORTS
-  ContentGetDetectString
-  ContentGetSupportedField
-  ContentGetValue
