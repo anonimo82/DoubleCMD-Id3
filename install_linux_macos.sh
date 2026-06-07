@@ -1,41 +1,41 @@
 #!/usr/bin/env bash
 # ============================================================
-#  Mp3Tag Tools per DoubleCMD - Installer Linux/macOS
-#  Requisiti: Python 3, DoubleCMD
+#  Mp3Tag Tools for DoubleCMD - Linux/macOS Installer
+#  Requirements: Python 3, DoubleCMD
 # ============================================================
 
 set -e
 
 echo ""
 echo " ============================================="
-echo "  Mp3Tag Tools per DoubleCMD - Installer"
+echo "  Mp3Tag Tools for DoubleCMD - Installer"
 echo " ============================================="
 echo ""
 
-# ---- Verifica Python ----
+# ---- Check Python ----
 if ! command -v python3 &>/dev/null; then
-    echo "ERRORE: Python 3 non trovato."
-    echo "Installa Python 3 con il tuo package manager."
+    echo "ERROR: Python 3 not found."
+    echo "Install Python 3 using your package manager."
     exit 1
 fi
 echo "Python: $(python3 --version)"
 
-# ---- Scegli cartella ----
+# ---- Choose install folder ----
 DEFAULT_DIR="$HOME/Mp3TagTools"
 echo ""
-echo "Dove vuoi installare gli script?"
-echo "Premi INVIO per usare il default: $DEFAULT_DIR"
+echo "Where do you want to install the scripts?"
+echo "Press ENTER to use the default: $DEFAULT_DIR"
 read -r -p "> " INSTALL_DIR
 if [ -z "$INSTALL_DIR" ]; then
     INSTALL_DIR="$DEFAULT_DIR"
 fi
 
 echo ""
-echo "Cartella di installazione: $INSTALL_DIR"
+echo "Install folder: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
-# ---- Copia gli script ----
-echo "Copio i file..."
+# ---- Copy scripts ----
+echo "Copying files..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cp "$SCRIPT_DIR/tools/id3lib.py"        "$INSTALL_DIR/id3lib.py"
 cp "$SCRIPT_DIR/tools/mp3tag_batch.py"  "$INSTALL_DIR/mp3tag_batch.py"
@@ -43,46 +43,46 @@ cp "$SCRIPT_DIR/tools/mp3tag_rename.py" "$INSTALL_DIR/mp3tag_rename.py"
 chmod +x "$INSTALL_DIR/mp3tag_batch.py"
 chmod +x "$INSTALL_DIR/mp3tag_rename.py"
 
-# ---- Crea wrapper shell con percorso fisso ----
-cat > "$INSTALL_DIR/run_batch.sh" << EOF
+# ---- Create wrapper shell scripts with fixed paths ----
+cat > "$INSTALL_DIR/run_batch.sh" << WRAPPER
 #!/usr/bin/env bash
 TMPFILE="\$(mktemp /tmp/mp3tag_XXXXXX.txt)"
 for f in "\$@"; do echo "\$f" >> "\$TMPFILE"; done
 python3 "$INSTALL_DIR/mp3tag_batch.py" --filelist "\$TMPFILE"
 rm -f "\$TMPFILE"
-EOF
+WRAPPER
 chmod +x "$INSTALL_DIR/run_batch.sh"
 
-cat > "$INSTALL_DIR/run_rename.sh" << EOF
+cat > "$INSTALL_DIR/run_rename.sh" << WRAPPER
 #!/usr/bin/env bash
 TMPFILE="\$(mktemp /tmp/mp3tag_XXXXXX.txt)"
 for f in "\$@"; do echo "\$f" >> "\$TMPFILE"; done
 python3 "$INSTALL_DIR/mp3tag_rename.py" --filelist "\$TMPFILE"
 rm -f "\$TMPFILE"
-EOF
+WRAPPER
 chmod +x "$INSTALL_DIR/run_rename.sh"
 
 echo ""
 echo " ============================================="
-echo "  Installazione completata!"
+echo "  Installation complete!"
 echo " ============================================="
 echo ""
-echo " Cartella: $INSTALL_DIR"
+echo " Folder: $INSTALL_DIR"
 echo ""
-echo " Configura DoubleCMD:"
+echo " Configure DoubleCMD:"
 echo " 1. Configuration > Options > Toolbar"
-echo " 2. Aggiungi pulsante 'External command':"
+echo " 2. Add button 'External command':"
 echo ""
-echo "    BATCH EDITOR:"
+echo "    BATCH TAG EDITOR:"
 echo "      Command:    $INSTALL_DIR/run_batch.sh"
 echo "      Parameters: %Lm"
 echo ""
-echo "    RINOMINA DAI TAG:"
+echo "    RENAME FROM TAGS:"
 echo "      Command:    $INSTALL_DIR/run_rename.sh"
 echo "      Parameters: %Lm"
 echo ""
-echo " 3. Per le colonne usa il plugin audioinfo"
-echo "    gia incluso in DoubleCMD:"
+echo " 3. For tag columns use the audioinfo plugin"
+echo "    already included in DoubleCMD:"
 echo "    Configuration > Options > Files views > Columns"
-echo "    Aggiungi colonne da: Plugins > audioinfo"
+echo "    Add columns from: Plugins > audioinfo"
 echo ""

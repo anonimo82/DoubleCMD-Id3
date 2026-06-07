@@ -1,7 +1,7 @@
 """
-mp3tag_batch.py - Batch editor tag ID3 per piu file MP3
+mp3tag_batch.py - Batch ID3 tag editor for multiple MP3 files
 Uso: python mp3tag_batch.py [file1.mp3 file2.mp3 ...]
-     Se lanciato senza argomenti, apre una finestra di selezione file.
+     If launched without arguments, opens a file selection dialog.
 """
 
 import sys
@@ -14,19 +14,19 @@ import id3lib
 
 COLS = [
     ('File',     None,      220, False),
-    ('Titolo',   'title',   160, True),
-    ('Artista',  'artist',  130, True),
+    ('Title',   'title',   160, True),
+    ('Artist',  'artist',  130, True),
     ('Album',    'album',   130, True),
-    ('Anno',     'year',     50, True),
-    ('Traccia',  'track',    55, True),
-    ('Genere',   'genre',    90, True),
-    ('Commento', 'comment', 120, True),
+    ('Year',     'year',     50, True),
+    ('Track',  'track',    55, True),
+    ('Genre',   'genre',    90, True),
+    ('Comment', 'comment', 120, True),
 ]
 
 class BatchEditor(tk.Tk):
     def __init__(self, files):
         super().__init__()
-        self.title('Batch Tag Editor — Mp3Tag per DoubleCMD')
+        self.title('Batch Tag Editor — Mp3Tag for DoubleCMD')
         self.geometry('980x540')
         self.minsize(700, 400)
         self.files = list(files)
@@ -45,11 +45,11 @@ class BatchEditor(tk.Tk):
     def _build_ui(self):
         tb = ttk.Frame(self, padding=(6,4))
         tb.pack(fill='x')
-        ttk.Label(tb, text='Doppio clic su una cella per modificarla.',
+        ttk.Label(tb, text='Double-click a cell to edit it.',
                   foreground='gray').pack(side='left')
-        ttk.Button(tb, text='Salva tutto',    command=self._save_all).pack(side='right', padx=4)
-        ttk.Button(tb, text='Chiudi',         command=self.destroy).pack(side='right', padx=4)
-        ttk.Button(tb, text='Aggiungi file...', command=self._add_files).pack(side='right', padx=4)
+        ttk.Button(tb, text='Save all',    command=self._save_all).pack(side='right', padx=4)
+        ttk.Button(tb, text='Close',         command=self.destroy).pack(side='right', padx=4)
+        ttk.Button(tb, text='Add files...', command=self._add_files).pack(side='right', padx=4)
 
         frame = ttk.Frame(self)
         frame.pack(fill='both', expand=True, padx=6, pady=4)
@@ -84,12 +84,12 @@ class BatchEditor(tk.Tk):
             for _, key, _, _ in COLS[1:]:
                 row.append(tag.get(key, ''))
             self.tree.insert('', 'end', values=row)
-        self.status.config(text=f'{len(self.files)} file caricati. Doppio clic per modificare.')
+        self.status.config(text=f'{len(self.files)} files loaded. Double-click to edit.')
 
     def _add_files(self):
         paths = filedialog.askopenfilenames(
-            title='Seleziona file MP3',
-            filetypes=[('File MP3', '*.mp3'), ('Tutti i file', '*.*')])
+            title='Select MP3 files',
+            filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
         if paths:
             self.files.extend(paths)
             self._load_files()
@@ -112,11 +112,11 @@ class BatchEditor(tk.Tk):
 
     def _popup_edit(self, row_id, row_idx, col_idx, key, current):
         popup = tk.Toplevel(self)
-        popup.title(f'Modifica {COLS[col_idx][0]}')
+        popup.title(f'Edit {COLS[col_idx][0]}')
         popup.resizable(False, False)
         popup.grab_set()
 
-        ttk.Label(popup, text=f'Campo: {COLS[col_idx][0]}',
+        ttk.Label(popup, text=f'Field: {COLS[col_idx][0]}',
                   font=('Segoe UI', 9, 'bold')).pack(padx=12, pady=(10,2), anchor='w')
 
         var = tk.StringVar(value=current)
@@ -130,7 +130,7 @@ class BatchEditor(tk.Tk):
         w.select_range(0, 'end')
 
         apply_all_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(popup, text='Applica a TUTTI i file nella lista',
+        ttk.Checkbutton(popup, text='Apply to ALL files in the list',
                         variable=apply_all_var).pack(padx=12, pady=(0,4), anchor='w')
 
         def confirm(e=None):
@@ -153,7 +153,7 @@ class BatchEditor(tk.Tk):
         bf = ttk.Frame(popup)
         bf.pack(padx=12, pady=(0,10))
         ttk.Button(bf, text='OK',     command=confirm).pack(side='left', padx=4)
-        ttk.Button(bf, text='Annulla', command=popup.destroy).pack(side='left', padx=4)
+        ttk.Button(bf, text='Cancel', command=popup.destroy).pack(side='left', padx=4)
 
         popup.update_idletasks()
         pw, ph = popup.winfo_width(), popup.winfo_height()
@@ -163,7 +163,7 @@ class BatchEditor(tk.Tk):
 
     def _save_all(self):
         if not self.modified:
-            messagebox.showinfo('Mp3Tag', 'Nessuna modifica da salvare.')
+            messagebox.showinfo('Mp3Tag', 'No changes to save.')
             return
         errors = []
         for (row_idx, key), val in self.modified.items():
@@ -174,9 +174,9 @@ class BatchEditor(tk.Tk):
                     errors.append(os.path.basename(path))
         self.modified.clear()
         if errors:
-            messagebox.showerror('Mp3Tag', 'Errori salvando:\n' + '\n'.join(errors))
+            messagebox.showerror('Mp3Tag', 'Errors saving:\n' + '\n'.join(errors))
         else:
-            messagebox.showinfo('Mp3Tag', f'Salvati {len(self.files)} file con successo!')
+            messagebox.showinfo('Mp3Tag', f'Saved {len(self.files)} files successfully!')
 
 def main():
     args = sys.argv[1:]
@@ -198,8 +198,8 @@ def main():
         root = tk.Tk()
         root.withdraw()
         paths = filedialog.askopenfilenames(
-            title='Seleziona file MP3',
-            filetypes=[('File MP3', '*.mp3'), ('Tutti i file', '*.*')])
+            title='Select MP3 files',
+            filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
         root.destroy()
         if paths:
             files = list(paths)
