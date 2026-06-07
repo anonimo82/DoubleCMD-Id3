@@ -1,7 +1,7 @@
 """
 mp3tag_batch.py - Batch ID3 tag editor for multiple MP3 files
-Uso: python mp3tag_batch.py [file1.mp3 file2.mp3 ...]
-     If launched without arguments, opens a file selection dialog.
+Usage: python mp3tag_batch.py [file1.mp3 file2.mp3 ...]
+       If launched without arguments, opens a file selection dialog.
 """
 
 import sys

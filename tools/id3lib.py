@@ -1,6 +1,6 @@
 """
-id3lib.py - Lettura e scrittura tag ID3v1 e ID3v2 per Python
-Supporta lettura ID3v1+v2, scrittura ID3v2.3 e ID3v1
+id3lib.py - ID3v1 and ID3v2 tag read/write library for Python
+Supports reading ID3v1+v2, writing ID3v2.3 and ID3v1
 """
 
 import struct
@@ -80,10 +80,10 @@ def read_id3v1(path):
     return tag
 
 def _write_id3v1(f, tag):
-    """Scrive/sostituisce tag ID3v1 alla fine del file (file già aperto in r+b)."""
+    """Write/replace ID3v1 tag at end of file (file already open in r+b mode)."""
     f.seek(0, 2)
     size = f.tell()
-    # Rimuovi v1 esistente
+    # Remove existing v1 tag
     if size >= 128:
         f.seek(-128, 2)
         if f.read(3) == b'TAG':
@@ -171,7 +171,7 @@ def read_id3v2(path):
 # ------------------------------------------------------------------ ID3v2 write
 
 def _make_text_frame(frame_id, text):
-    """Crea un frame ID3v2.3 con encoding UTF-8 (enc=3)."""
+    """Create an ID3v2.3 text frame with UTF-8 encoding (enc=3)."""
     encoded = text.encode('utf-8')
     payload = b'\x03' + encoded  # encoding byte + data
     size = struct.pack('>I', len(payload))
@@ -180,29 +180,29 @@ def _make_text_frame(frame_id, text):
 
 def write_id3v2(path, tag):
     """
-    Riscrive i tag ID3v2.3 nel file mantenendo tutto il resto intatto.
-    Strategia: legge il file audio (dopo il tag v2), riscrive v2 + audio.
+    Rewrite ID3v2.3 tags in the file keeping all audio data intact.
+    Strategy: read audio data (after v2 tag), rewrite v2 header + audio.
     """
     try:
         with open(path, 'rb') as f:
             header = f.read(10)
 
-        # Determina dove inizia l'audio
+        # Determine where audio data starts
         if header[:3] == b'ID3':
             old_tag_size = _syncsafe_to_int(header[6:10]) + 10
         else:
             old_tag_size = 0
 
-        # Leggi la parte audio (tutto dopo il vecchio tag v2)
+        # Read audio data (everything after the old v2 tag)
         with open(path, 'rb') as f:
             f.seek(old_tag_size)
             audio_data = f.read()
 
-        # Rimuovi eventuale ID3v1 dalla fine dell'audio
+        # Strip any ID3v1 tag from end of audio data
         if len(audio_data) >= 128 and audio_data[-128:-125] == b'TAG':
             audio_data = audio_data[:-128]
 
-        # Costruisci i nuovi frame
+        # Build new frames
         frames = b''
         field_map = {
             'title':   'TIT2',
@@ -217,7 +217,7 @@ def write_id3v2(path, tag):
             val = str(tag.get(key, '') or '')
             if val:
                 if fid == 'COMM':
-                    # Frame COMM ha formato speciale: enc + lang + desc + text
+                    # COMM frame has special format: enc + lang + desc + text
                     encoded = val.encode('utf-8')
                     payload = b'\x03' + b'eng' + b'\x00' + encoded
                     size = struct.pack('>I', len(payload))
@@ -225,20 +225,20 @@ def write_id3v2(path, tag):
                 else:
                     frames += _make_text_frame(fid, val)
 
-        # Aggiungi padding
+        # Add padding
         padding = b'\x00' * 256
 
-        # Header ID3v2.3
+        # ID3v2.3 header
         tag_content = frames + padding
         tag_size = _int_to_syncsafe(len(tag_content))
         new_header = b'ID3' + b'\x03\x00' + b'\x00' + tag_size
 
-        # Scrivi tutto in una sola operazione
+        # Write everything in a single operation
         with open(path, 'wb') as f:
             f.write(new_header)
             f.write(tag_content)
             f.write(audio_data)
-            # Aggiungi ID3v1 in coda per compatibilita
+            # Append ID3v1 tag for backwards compatibility
             def enc(s, n):
                 b = str(s).encode("latin-1", errors="replace")[:n]
                 return b.ljust(n, bytes([0]))
@@ -260,7 +260,7 @@ def write_id3v2(path, tag):
         print(f'write_id3v2 error: {e}')
         return False
 
-# ------------------------------------------------------------------ API pubblica
+# ------------------------------------------------------------------ Public API
 
 def read_tags(path):
     tag = read_id3v2(path)
@@ -275,7 +275,7 @@ def read_tags(path):
     return tag
 
 def write_tags(path, tag):
-    """Scrive ID3v2.3 + ID3v1."""
+    """Write ID3v2.3 + ID3v1 tags."""
     return write_id3v2(path, tag)
 
 def sanitize_filename(s):

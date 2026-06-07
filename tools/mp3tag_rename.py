@@ -1,7 +1,7 @@
 """
 mp3tag_rename.py - Rename MP3 files from ID3 tags with live preview
-Uso: python mp3tag_rename.py [file1.mp3 file2.mp3 ...]
-     If launched without arguments, opens a file selection dialog.
+Usage: python mp3tag_rename.py [file1.mp3 file2.mp3 ...]
+       If launched without arguments, opens a file selection dialog.
 """
 
 import sys
@@ -137,7 +137,7 @@ def main():
     args = sys.argv[1:]
     files = []
 
-    # --filelist mode: reads files from a temp file (used by .bat/.sh wrappers)
+    # --filelist mode: reads files from a temp list file (used by .bat/.sh wrappers)
     if len(args) >= 2 and args[0] == '--filelist':
         try:
             with open(args[1], 'r', encoding='utf-8', errors='ignore') as f:
@@ -150,12 +150,12 @@ def main():
     else:
         files = [f for f in args if f.lower().endswith('.mp3') and os.path.isfile(f)]
 
-    # If no valid files received, open file selection dialog
+    # No valid files received: open file selection dialog
     if not files:
         root = tk.Tk()
         root.withdraw()
         paths = filedialog.askopenfilenames(
-            title='Seleziona file MP3 to rename',
+            title='Select MP3 files to rename',
             filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
         root.destroy()
         if paths:
