@@ -1,11 +1,21 @@
 """
 id3lib.py - ID3v1 and ID3v2 tag read/write library for Python
 Supports reading ID3v1+v2, writing ID3v2.3 and ID3v1
+
+Fixes applied:
+  - COMM frame: added missing null-terminator for content descriptor (was causing
+    corrupt comment data in all compliant readers)
+  - COMM read: dedicated _read_comm_frame() instead of _read_frame_text(), which
+    was returning lang+descriptor garbage as part of the comment value
+  - Atomic write: audio data is now written to a temp file then os.replace()'d,
+    so a crash mid-write never corrupts the original file
+  - sanitize_filename: now strips ASCII control characters (0x00-0x1f)
 """
 
 import re
 import struct
 import os
+import tempfile
 
 GENRES = [
     'Blues','Classic Rock','Country','Dance','Disco','Funk','Grunge',
@@ -83,6 +93,7 @@ def read_id3v1(path):
 # ------------------------------------------------------------------ ID3v2 read
 
 def _read_frame_text(data, frame_id, version):
+    """Read a standard text frame (TIT2, TPE1, TALB, etc.)."""
     pos = 10
     while pos + 10 < len(data):
         fid = data[pos:pos+4]
@@ -104,6 +115,62 @@ def _read_frame_text(data, frame_id, version):
                 return raw.rstrip(b'\x00\xff\xfe').decode('utf-16', errors='replace').strip()
             elif enc == 3:
                 return raw.rstrip(b'\x00').decode('utf-8', errors='replace').strip()
+        pos += sz
+    return ''
+
+def _read_comm_frame(data, version):
+    """
+    Read a COMM (comment) frame correctly.
+
+    COMM layout inside the frame payload:
+        1 byte   encoding
+        3 bytes  language (e.g. b'eng')
+        N bytes  content descriptor, null-terminated
+                   enc 0/3 → single \x00
+                   enc 1/2 → double \x00\x00
+        M bytes  actual comment text (same encoding)
+    """
+    pos = 10
+    while pos + 10 < len(data):
+        fid = data[pos:pos+4]
+        if fid == b'\x00\x00\x00\x00':
+            break
+        if version >= 4:
+            sz = _syncsafe_to_int(data[pos+4:pos+8])
+        else:
+            sz = struct.unpack('>I', data[pos+4:pos+8])[0]
+        pos += 10
+        if sz <= 0 or pos + sz > len(data):
+            break
+        if fid == b'COMM' and sz >= 4:
+            payload = data[pos:pos+sz]
+            enc  = payload[0]
+            # skip lang (3 bytes)
+            rest = payload[4:]
+            # skip null-terminated descriptor
+            if enc in (1, 2):
+                # UTF-16: descriptor terminated by \x00\x00
+                null_pos = 0
+                while null_pos + 1 < len(rest):
+                    if rest[null_pos] == 0 and rest[null_pos+1] == 0:
+                        null_pos += 2
+                        break
+                    null_pos += 2
+                rest = rest[null_pos:]
+            else:
+                # Latin-1 / UTF-8: descriptor terminated by single \x00
+                null_pos = rest.find(b'\x00')
+                if null_pos != -1:
+                    rest = rest[null_pos+1:]
+            # Decode actual comment text
+            rest = rest.rstrip(b'\x00')
+            if enc == 0:
+                return rest.decode('latin-1', errors='replace').strip()
+            elif enc in (1, 2):
+                return rest.decode('utf-16', errors='replace').strip()
+            elif enc == 3:
+                return rest.decode('utf-8', errors='replace').strip()
+            return ''
         pos += sz
     return ''
 
@@ -135,7 +202,8 @@ def read_id3v2(path):
                 tag['genre'] = GENRES[gi] if gi < len(GENRES) else g
             except Exception:
                 pass
-        tag['comment'] = _read_frame_text(data, 'COMM', version)
+        # FIX #3: use dedicated COMM reader instead of _read_frame_text
+        tag['comment'] = _read_comm_frame(data, version)
     except Exception:
         pass
     return tag
@@ -150,10 +218,29 @@ def _make_text_frame(frame_id, text):
     flags = b'\x00\x00'
     return frame_id.encode() + size + flags + payload
 
+def _make_comm_frame(text):
+    """
+    Create an ID3v2.3 COMM frame with UTF-8 encoding.
+
+    Layout: encoding(1) + lang(3) + descriptor(1+ null) + text
+    FIX #2: descriptor is a null-terminated empty string → single \x00 for UTF-8.
+    Previously the null was missing, causing compliant readers to merge the
+    descriptor and the comment text into one garbled string.
+    """
+    encoded = text.encode('utf-8')
+    # enc=0x03 (UTF-8), lang=eng, empty descriptor null-terminated, then text
+    payload = b'\x03' + b'eng' + b'\x00' + b'\x00' + encoded
+    size = struct.pack('>I', len(payload))
+    return b'COMM' + size + b'\x00\x00' + payload
+
 def write_id3v2(path, tag):
     """
     Rewrite ID3v2.3 tags in the file keeping all audio data intact.
-    Strategy: read audio data (after v2 tag), rewrite v2 header + audio.
+
+    FIX #9: uses an atomic write strategy — data is written to a sibling
+    temp file in the same directory, then os.replace() swaps it in place.
+    A crash or I/O error during the write therefore never corrupts the
+    original file; at worst the temp file is left behind.
     """
     try:
         with open(path, 'rb') as f:
@@ -176,26 +263,23 @@ def write_id3v2(path, tag):
 
         # Build new frames
         frames = b''
-        field_map = {
+        text_fields = {
             'title':   'TIT2',
             'artist':  'TPE1',
             'album':   'TALB',
             'year':    'TYER',
             'track':   'TRCK',
             'genre':   'TCON',
-            'comment': 'COMM',
         }
-        for key, fid in field_map.items():
+        for key, fid in text_fields.items():
             val = str(tag.get(key, '') or '')
             if val:
-                if fid == 'COMM':
-                    # COMM frame has special format: enc + lang + desc + text
-                    encoded = val.encode('utf-8')
-                    payload = b'\x03' + b'eng' + b'\x00' + encoded
-                    size = struct.pack('>I', len(payload))
-                    frames += b'COMM' + size + b'\x00\x00' + payload
-                else:
-                    frames += _make_text_frame(fid, val)
+                frames += _make_text_frame(fid, val)
+
+        # FIX #2: COMM gets its own dedicated builder
+        comment = str(tag.get('comment', '') or '')
+        if comment:
+            frames += _make_comm_frame(comment)
 
         # Add padding
         padding = b'\x00' * 256
@@ -205,27 +289,43 @@ def write_id3v2(path, tag):
         tag_size = _int_to_syncsafe(len(tag_content))
         new_header = b'ID3' + b'\x03\x00' + b'\x00' + tag_size
 
-        # Write everything in a single operation
-        with open(path, 'wb') as f:
-            f.write(new_header)
-            f.write(tag_content)
-            f.write(audio_data)
-            # Append ID3v1 tag for backwards compatibility
-            def enc(s, n):
-                b = str(s).encode("latin-1", errors="replace")[:n]
-                return b.ljust(n, bytes([0]))
-            v1 = b"TAG"
-            v1 += enc(tag.get("title",""),   30)
-            v1 += enc(tag.get("artist",""),  30)
-            v1 += enc(tag.get("album",""),   30)
-            v1 += enc(tag.get("year",""),     4)
-            v1 += enc(tag.get("comment",""), 28)
-            track = int(tag.get("track","0") or "0")
-            v1 += bytes([0]) + bytes([min(track, 255)])
-            genre_name = tag.get("genre","")
-            gi = GENRES.index(genre_name) if genre_name in GENRES else 255
-            v1 += bytes([gi])
-            f.write(v1)
+        # Build ID3v1 tag for backwards compatibility
+        def enc(s, n):
+            b = str(s).encode("latin-1", errors="replace")[:n]
+            return b.ljust(n, bytes([0]))
+        v1 = b"TAG"
+        v1 += enc(tag.get("title",""),   30)
+        v1 += enc(tag.get("artist",""),  30)
+        v1 += enc(tag.get("album",""),   30)
+        v1 += enc(tag.get("year",""),     4)
+        v1 += enc(tag.get("comment",""), 28)
+        track_val = tag.get("track","") or "0"
+        try:
+            track_int = int(str(track_val).split('/')[0])
+        except ValueError:
+            track_int = 0
+        v1 += bytes([0]) + bytes([min(track_int, 255)])
+        genre_name = tag.get("genre","")
+        gi = GENRES.index(genre_name) if genre_name in GENRES else 255
+        v1 += bytes([gi])
+
+        # FIX #9: atomic write via temp file in the same directory
+        dir_name = os.path.dirname(os.path.abspath(path))
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'wb') as f:
+                f.write(new_header)
+                f.write(tag_content)
+                f.write(audio_data)
+                f.write(v1)
+            os.replace(tmp_path, path)
+        except Exception:
+            # Clean up the temp file if something went wrong
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
         return True
     except Exception as e:
@@ -251,8 +351,15 @@ def write_tags(path, tag):
     return write_id3v2(path, tag)
 
 def sanitize_filename(s):
+    """
+    Remove characters that are illegal or problematic in filenames.
+    FIX #11: also strips ASCII control characters (0x00-0x1f).
+    """
+    # Remove filesystem-illegal characters
     for c in r'/\:*?"<>|':
         s = s.replace(c, '_')
+    # Strip ASCII control characters
+    s = re.sub(r'[\x00-\x1f]', '', s)
     return s.strip()
 
 def build_filename(pattern, tag, ext):

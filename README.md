@@ -209,3 +209,5 @@ mp3tag_dist/           (this package)
   is never modified
 - **No external dependencies**: pure Python standard library only (`struct`,
   `os`, `tkinter`)
+- **Atomic writes**: tag data is written to a temp file then swapped in with
+  `os.replace()`, so a crash mid-write never corrupts the original file

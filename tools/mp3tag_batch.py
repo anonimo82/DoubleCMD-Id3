@@ -2,6 +2,13 @@
 mp3tag_batch.py - Batch ID3 tag editor for multiple MP3 files
 Usage: python mp3tag_batch.py [file1.mp3 file2.mp3 ...]
        If launched without arguments, opens a file selection dialog.
+
+Fixes applied:
+  - FIX #6: after _save_all(), self.tags is rebuilt from the tree values so
+    that the in-memory state always matches what is displayed (was possible
+    to get diverged on multiple successive edits + saves).
+  - FIX #10: closing the window while there are unsaved changes now asks for
+    confirmation, preventing accidental data loss.
 """
 
 import sys
@@ -35,6 +42,8 @@ class BatchEditor(tk.Tk):
         self._build_ui()
         self._load_files()
         self._center()
+        # FIX #10: intercept the window-close button
+        self.protocol('WM_DELETE_WINDOW', self._on_close)
 
     def _center(self):
         self.update_idletasks()
@@ -48,7 +57,7 @@ class BatchEditor(tk.Tk):
         ttk.Label(tb, text='Double-click a cell to edit it.',
                   foreground='gray').pack(side='left')
         ttk.Button(tb, text='Save all',    command=self._save_all).pack(side='right', padx=4)
-        ttk.Button(tb, text='Close',         command=self.destroy).pack(side='right', padx=4)
+        ttk.Button(tb, text='Close',       command=self._on_close).pack(side='right', padx=4)
         ttk.Button(tb, text='Add files...', command=self._add_files).pack(side='right', padx=4)
 
         frame = ttk.Frame(self)
@@ -73,6 +82,17 @@ class BatchEditor(tk.Tk):
 
         self.status = ttk.Label(self, text='', foreground='gray', font=('Segoe UI', 8))
         self.status.pack(side='bottom', fill='x', padx=6, pady=2)
+
+    # FIX #10: ask for confirmation when there are unsaved changes
+    def _on_close(self):
+        if self.modified:
+            if not messagebox.askyesno(
+                'Unsaved changes',
+                'There are unsaved changes. Close without saving?',
+                icon='warning',
+            ):
+                return
+        self.destroy()
 
     def _load_files(self):
         self.tree.delete(*self.tree.get_children())
@@ -175,18 +195,30 @@ class BatchEditor(tk.Tk):
             messagebox.showinfo('Mp3Tag', 'No changes to save.')
             return
         errors = []
+
+        # Apply all pending edits to self.tags
         for (row_idx, key), val in self.modified.items():
             self.tags[row_idx][key] = val
+
         modified_rows = {ri for ri, _ in self.modified}
         for i, path in enumerate(self.files):
             if i in modified_rows:
                 if not id3lib.write_tags(path, self.tags[i]):
                     errors.append(os.path.basename(path))
+
+        # FIX #6: resync self.tags from the tree so that successive edits
+        # always start from the true saved state, not stale in-memory data.
+        for i, rid in enumerate(self.tree.get_children()):
+            vals = self.tree.item(rid, 'values')
+            for col_idx, (_, key, _, editable) in enumerate(COLS):
+                if editable and key:
+                    self.tags[i][key] = vals[col_idx]
+
         self.modified.clear()
         if errors:
             messagebox.showerror('Mp3Tag', 'Errors saving:\n' + '\n'.join(errors))
         else:
-            messagebox.showinfo('Mp3Tag', f'Saved successfully!')
+            messagebox.showinfo('Mp3Tag', 'Saved successfully!')
 
 def main():
     args = sys.argv[1:]

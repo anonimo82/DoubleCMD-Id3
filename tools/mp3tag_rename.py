@@ -2,6 +2,13 @@
 mp3tag_rename.py - Rename MP3 files from ID3 tags with live preview
 Usage: python mp3tag_rename.py [file1.mp3 file2.mp3 ...]
        If launched without arguments, opens a file selection dialog.
+
+Fixes applied:
+  - FIX #7: after _do_rename(), self.files and self.tags are updated to
+    reflect the new paths for files that were successfully renamed.
+    Previously, if some renames succeeded and others failed, a second
+    attempt would try to rename already-renamed files from stale paths,
+    causing "file not found" errors on every previously successful file.
 """
 
 import sys
@@ -20,7 +27,7 @@ class RenameDialog(tk.Tk):
         self.title('Rename from Tags — Mp3Tag for DoubleCMD')
         self.resizable(True, False)
         self.minsize(700, 380)
-        self.files = files
+        self.files = list(files)
         self.tags  = [id3lib.read_tags(f) for f in files]
         self._build_ui()
         self._update_preview()
@@ -60,16 +67,16 @@ class RenameDialog(tk.Tk):
         self.tree.pack(side='left', fill='both', expand=True)
         vsb.pack(side='right', fill='y')
 
-        self.tree.tag_configure('same',    foreground='gray')
-        self.tree.tag_configure('changed', foreground='#0070c0')
-        self.tree.tag_configure('conflict',foreground='red')
+        self.tree.tag_configure('same',     foreground='gray')
+        self.tree.tag_configure('changed',  foreground='#0070c0')
+        self.tree.tag_configure('conflict', foreground='red')
 
         bf = ttk.Frame(self, padding=(10,6))
         bf.pack(fill='x')
         self.lbl_info = ttk.Label(bf, text='', foreground='gray', font=('Segoe UI', 8))
         self.lbl_info.pack(side='left')
         ttk.Button(bf, text='Rename', command=self._do_rename).pack(side='right', padx=4)
-        ttk.Button(bf, text='Cancel',  command=self.destroy).pack(side='right', padx=4)
+        ttk.Button(bf, text='Cancel', command=self.destroy).pack(side='right', padx=4)
 
     def _build_new_name(self, i):
         ext = os.path.splitext(self.files[i])[1].lower()
@@ -106,6 +113,7 @@ class RenameDialog(tk.Tk):
         errors = []
         renamed = 0
         new_names = [self._build_new_name(i) for i in range(len(self.files))]
+
         seen = {}
         for nn in new_names:
             seen[nn] = seen.get(nn, 0) + 1
@@ -113,6 +121,11 @@ class RenameDialog(tk.Tk):
             if not messagebox.askyesno('Mp3Tag',
                 'There are duplicate names.\nProceed ignoring duplicates?'):
                 return
+
+        # FIX #7: track which indices were successfully renamed so we can
+        # update self.files (and self.tags) to the new paths afterwards.
+        renamed_indices = {}
+
         for i, path in enumerate(self.files):
             old = os.path.basename(path)
             nn  = new_names[i]
@@ -124,11 +137,22 @@ class RenameDialog(tk.Tk):
                 continue
             try:
                 os.rename(path, new_path)
+                renamed_indices[i] = new_path
                 renamed += 1
             except Exception as e:
                 errors.append(f'{old}: {e}')
+
+        # FIX #7: update self.files so a retry (after partial failure) uses
+        # the correct paths for the files that were already renamed.
+        for i, new_path in renamed_indices.items():
+            self.files[i] = new_path
+
         if errors:
-            messagebox.showerror('Mp3Tag', f'Renamed {renamed} files.\nErrors:\n' + '\n'.join(errors))
+            messagebox.showerror('Mp3Tag',
+                f'Renamed {renamed} files.\nErrors:\n' + '\n'.join(errors))
+            # Refresh the preview with the updated file list so the user can
+            # see what still needs to be done and retry if they wish.
+            self._update_preview()
         else:
             messagebox.showinfo('Mp3Tag', f'Renamed {renamed} files successfully!')
             self.destroy()
