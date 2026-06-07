@@ -1,0 +1,6 @@
+LIBRARY Mp3TagDsx
+EXPORTS
+  Init
+  StartSearch
+  StopSearch
+  Finalize

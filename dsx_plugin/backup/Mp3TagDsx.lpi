@@ -5,12 +5,11 @@
     <General>
       <Flags>
         <MainUnitHasCreateFormStatements Value="False"/>
-        <ProjectIsLibrary Value="True"/>
         <MainUnitHasTitleStatement Value="False"/>
         <MainUnitHasScaledStatement Value="False"/>
       </Flags>
       <SessionStorage Value="InProjectDir"/>
-      <Title Value="Mp3TagWdx"/>
+      <Title Value="Mp3TagDsx"/>
       <UseXPManifest Value="False"/>
       <ApplicationType Value="Library"/>
     </General>
@@ -25,7 +24,7 @@
     </RunParams>
     <Units Count="2">
       <Unit0>
-        <Filename Value="Mp3TagWdx.pas"/>
+        <Filename Value="Mp3TagDsx.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit0>
       <Unit1>
@@ -38,7 +37,7 @@
     <Options>
       <Version Value="11"/>
       <Target>
-        <Filename Value="../output/Mp3TagWdx"/>
+        <Filename Value="../output/Mp3TagDsx"/>
       </Target>
       <SearchPaths>
         <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>

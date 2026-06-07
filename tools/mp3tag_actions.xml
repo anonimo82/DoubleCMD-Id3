@@ -1,54 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Azioni Utente per DoubleCMD - Mp3Tag
-  =====================================
-  Come importare:
-    Configurazione > Opzioni > Azioni utente > Importa
-    Seleziona questo file: mp3tag_actions.xml
+  Azioni Utente Mp3Tag per DoubleCMD
+  ====================================
+  Importa in DoubleCMD:
+    Configurazione > Opzioni > Azioni utente > Importa > seleziona questo file
 
-  Queste azioni appaiono nel menu contestuale (tasto destro) sui file MP3.
-  Richiedono che Python 3 sia installato e nel PATH.
+  REQUISITO: Python 3 installato e nel PATH di sistema.
+
+  Prima di importare, modifica i percorsi sotto:
+  sostituisci C:\DoubleCMD\plugins\tools\ con il percorso
+  reale dove hai copiato la cartella "tools".
 -->
-<actions>
+<doublecmd>
+  <actions>
 
-  <action>
-    <name>Mp3Tag: Mostra tag</name>
-    <command>python</command>
-    <parameters>"%COMMANDER_PATH%\plugins\tools\mp3tag_show.py" "%f"</parameters>
-    <startpath></startpath>
-    <icon></icon>
-    <shortcut></shortcut>
-    <description>Mostra i tag ID3 del file MP3 selezionato</description>
-  </action>
+    <action>
+      <name>Mp3Tag\Modifica tag</name>
+      <command>pythonw</command>
+      <params>"C:\DoubleCMD\plugins\tools\mp3tag_edit.py" "%f"</params>
+      <startpath>%D</startpath>
+      <icon></icon>
+      <shortcut>Ctrl+Alt+T</shortcut>
+    </action>
 
-  <action>
-    <name>Mp3Tag: Modifica tag (singolo)</name>
-    <command>python</command>
-    <parameters>"%COMMANDER_PATH%\plugins\tools\mp3tag_edit.py" "%f"</parameters>
-    <startpath></startpath>
-    <icon></icon>
-    <shortcut></shortcut>
-    <description>Apre un editor grafico per modificare i tag del file selezionato</description>
-  </action>
+    <action>
+      <name>Mp3Tag\Batch tag editor</name>
+      <command>pythonw</command>
+      <params>"C:\DoubleCMD\plugins\tools\mp3tag_batch.py" %Lm</params>
+      <startpath>%D</startpath>
+      <icon></icon>
+      <shortcut>Ctrl+Alt+B</shortcut>
+    </action>
 
-  <action>
-    <name>Mp3Tag: Rinomina dai tag</name>
-    <command>python</command>
-    <parameters>"%COMMANDER_PATH%\plugins\tools\mp3tag_rename.py" %LM</parameters>
-    <startpath></startpath>
-    <icon></icon>
-    <shortcut></shortcut>
-    <description>Rinomina i file MP3 selezionati usando i loro tag ID3</description>
-  </action>
+    <action>
+      <name>Mp3Tag\Rinomina dai tag</name>
+      <command>pythonw</command>
+      <params>"C:\DoubleCMD\plugins\tools\mp3tag_rename.py" %Lm</params>
+      <startpath>%D</startpath>
+      <icon></icon>
+      <shortcut>Ctrl+Alt+R</shortcut>
+    </action>
 
-  <action>
-    <name>Mp3Tag: Batch tag editor</name>
-    <command>python</command>
-    <parameters>"%COMMANDER_PATH%\plugins\tools\mp3tag_batch.py" %LM</parameters>
-    <startpath></startpath>
-    <icon></icon>
-    <shortcut></shortcut>
-    <description>Modifica i tag di tutti i file MP3 selezionati in una griglia</description>
-  </action>
-
-</actions>
+  </actions>
+</doublecmd>
