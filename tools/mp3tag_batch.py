@@ -259,7 +259,6 @@ class BatchEditor(tk.Tk):
         # return immediately so the file-count summary never overwrites it.
         try:
             pattern_to_regex(pattern)
-            pattern_ok = True
         except ValueError as e:
             self._ff_info.config(text=f'Pattern error: {e}', foreground='red')
             return
