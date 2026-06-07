@@ -8,8 +8,12 @@ Fixes applied:
   - COMM read: dedicated _read_comm_frame() instead of _read_frame_text()
   - COMM read: enc==2 (UTF-16BE) now decoded with 'utf-16-be' instead of
     'utf-16', which requires a BOM and would garble BOM-less UTF-16BE data
+  - _read_frame_text: added enc==2 (UTF-16BE) branch — previously missing,
+    causing all text tags to read as '' on ID3v2.4 files with UTF-16BE encoding
   - _read_frame_text: UTF-16 rstrip now strips only null bytes before decoding,
     not the byte-set {0x00, 0xff, 0xfe} which could truncate valid data
+  - TCON parsing: '(N)freeform' now correctly uses the free-form text;
+    special codes (RX)=Remix and (CR)=Cover are resolved explicitly
   - build_filename: guarded result[:-len(ext)] against len(ext)==0, which
     evaluated to result[:0] == '' and destroyed the entire filename
   - Atomic write: audio data written to a temp file then os.replace()'d
@@ -97,7 +101,15 @@ def read_id3v1(path):
 # ------------------------------------------------------------------ ID3v2 read
 
 def _read_frame_text(data, frame_id, version):
-    """Read a standard text frame (TIT2, TPE1, TALB, etc.)."""
+    """
+    Read a standard text frame (TIT2, TPE1, TALB, etc.).
+
+    Encoding byte values (ID3v2.3/2.4 spec):
+        0 = ISO-8859-1 (Latin-1)
+        1 = UTF-16 with BOM
+        2 = UTF-16BE without BOM  (ID3v2.4 only)
+        3 = UTF-8
+    """
     pos = 10
     while pos + 10 < len(data):
         fid = data[pos:pos+4]
@@ -116,9 +128,15 @@ def _read_frame_text(data, frame_id, version):
             if enc == 0:
                 return raw.rstrip(b'\x00').decode('latin-1', errors='replace').strip()
             elif enc == 1:
-                # Strip only null bytes; rstrip(b'\x00\xff\xfe') is a byte-set
-                # that would silently eat valid 0xff / 0xfe bytes from the tail.
+                # UTF-16 with BOM. Strip only null bytes; rstrip(b'\x00\xff\xfe')
+                # is a byte-set that would silently eat valid 0xff/0xfe tail bytes.
                 return raw.rstrip(b'\x00').decode('utf-16', errors='replace').strip()
+            elif enc == 2:
+                # FIX #1: UTF-16BE without BOM (common in ID3v2.4 files from
+                # foobar2000, MusicBrainz Picard, beets). Previously this branch
+                # was missing, causing all text frames to be read back as '' for
+                # any file tagged with enc=2 — silent total data loss on read.
+                return raw.rstrip(b'\x00').decode('utf-16-be', errors='replace').strip()
             elif enc == 3:
                 return raw.rstrip(b'\x00').decode('utf-8', errors='replace').strip()
         pos += sz
@@ -207,11 +225,26 @@ def read_id3v2(path):
         tag['genre']   = _read_frame_text(data, 'TCON', version)
         g = tag['genre']
         if g.startswith('(') and ')' in g:
-            try:
-                gi = int(g[1:g.index(')')])
-                tag['genre'] = GENRES[gi] if gi < len(GENRES) else g
-            except Exception:
-                pass
+            close = g.index(')')
+            free  = g[close+1:].strip()
+            code  = g[1:close]
+            if free:
+                # FIX #2: ID3v2.3 §4.2.1 allows '(N)freeform' where the text
+                # after ')' refines or overrides the numeric code. Prefer it.
+                tag['genre'] = free
+            else:
+                # FIX #3: handle special non-numeric codes (RX)=Remix, (CR)=Cover
+                # before attempting int() conversion, so they don't silently fall
+                # through to the except branch and leave the raw string in place.
+                _SPECIAL = {'RX': 'Remix', 'CR': 'Cover'}
+                if code in _SPECIAL:
+                    tag['genre'] = _SPECIAL[code]
+                else:
+                    try:
+                        gi = int(code)
+                        tag['genre'] = GENRES[gi] if gi < len(GENRES) else g
+                    except (ValueError, IndexError):
+                        pass  # leave tag['genre'] as the raw string
         # FIX #3: use dedicated COMM reader instead of _read_frame_text
         tag['comment'] = _read_comm_frame(data, version)
     except Exception:

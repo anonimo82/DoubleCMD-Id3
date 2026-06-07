@@ -9,6 +9,8 @@ Fixes applied:
     Previously, if some renames succeeded and others failed, a second
     attempt would try to rename already-renamed files from stale paths,
     causing "file not found" errors on every previously successful file.
+  - FIX #4: renamed local variable 'tag' to 'row_tag' in _update_preview
+    to avoid shadowing the id3 tag dict convention used elsewhere.
 """
 
 import sys
@@ -96,13 +98,15 @@ class RenameDialog(tk.Tk):
         for i, path in enumerate(self.files):
             old = os.path.basename(path)
             nn  = new_names[i]
+            # FIX #4: renamed 'tag' → 'row_tag' to avoid shadowing the id3 tag
+            # dict convention used everywhere else in the codebase.
             if seen[nn] > 1:
-                tag = 'conflict'; conflicts += 1
+                row_tag = 'conflict'; conflicts += 1
             elif old == nn:
-                tag = 'same'
+                row_tag = 'same'
             else:
-                tag = 'changed'; changed += 1
-            self.tree.insert('', 'end', values=(old, '->', nn), tags=(tag,))
+                row_tag = 'changed'; changed += 1
+            self.tree.insert('', 'end', values=(old, '->', nn), tags=(row_tag,))
 
         info = f'{len(self.files)} files  •  {changed} to rename'
         if conflicts:
