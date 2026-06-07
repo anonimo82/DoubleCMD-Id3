@@ -20,6 +20,14 @@ Fixes applied:
     evaluated to result[:0] == '' and destroyed the entire filename
   - Atomic write: audio data written to a temp file then os.replace()'d
   - sanitize_filename: strips ASCII control characters (0x00-0x1f)
+  - FIX A: off-by-one in frame loop — changed < to <= so the last frame
+    in a tag with no trailing padding is no longer silently skipped
+    (affects _read_frame_text, _read_comm_frame, read_id3v2)
+  - FIX B: break on zero-size frame replaced with skip+continue so that
+    a single malformed frame no longer silently drops all subsequent frames
+    (affects _read_frame_text, _read_comm_frame)
+  - FIX D: write_id3v2 now writes both TYER (ID3v2.3) and TDRC (ID3v2.4)
+    so players that only understand ID3v2.4 year tags still see the year
 """
 
 import re
@@ -133,9 +141,16 @@ def _read_frame_text(data, frame_id, version):
         1 = UTF-16 with BOM
         2 = UTF-16BE without BOM  (ID3v2.4 only)
         3 = UTF-8
+
+    FIX A: loop condition changed from < to <= so the last frame in a tag
+    with no trailing padding (written by third-party tools) is not skipped.
+
+    FIX B: a frame with sz==0 is skipped with continue (pos advanced past
+    its 10-byte header) rather than breaking out of the loop, so subsequent
+    frames are not silently lost.
     """
     pos = 10
-    while pos + 10 < len(data):
+    while pos + 10 <= len(data):                      # FIX A: <= instead of <
         fid = data[pos:pos+4]
         if fid == b'\x00\x00\x00\x00':
             break
@@ -143,25 +158,20 @@ def _read_frame_text(data, frame_id, version):
             sz = _syncsafe_to_int(data[pos+4:pos+8])
         else:
             sz = struct.unpack('>I', data[pos+4:pos+8])[0]
-        pos += 10
-        if sz <= 0 or pos + sz > len(data):
+        if sz <= 0:                                    # FIX B: skip, don't break
+            pos += 10
+            continue
+        if pos + 10 + sz > len(data):
             break
+        pos += 10
         if fid == frame_id.encode():
             enc = data[pos]
             raw = data[pos+1:pos+sz]
             if enc == 0:
                 return raw.rstrip(b'\x00').decode('latin-1', errors='replace').strip()
             elif enc == 1:
-                # UTF-16 with BOM. Use _rstrip_utf16() instead of rstrip(b'\x00'):
-                # the latter strips individual zero bytes and corrupts the last
-                # ASCII character in UTF-16-LE (stored as <char> 00), producing
-                # a replacement character U+FFFD for the final codepoint.
                 return _rstrip_utf16(raw).decode('utf-16', errors='replace').strip()
             elif enc == 2:
-                # FIX #1: UTF-16BE without BOM (common in ID3v2.4 files from
-                # foobar2000, MusicBrainz Picard, beets). Previously this branch
-                # was missing, causing all text frames to be read back as '' for
-                # any file tagged with enc=2 — silent total data loss on read.
                 return raw.rstrip(b'\x00').decode('utf-16-be', errors='replace').strip()
             elif enc == 3:
                 return raw.rstrip(b'\x00').decode('utf-8', errors='replace').strip()
@@ -179,9 +189,14 @@ def _read_comm_frame(data, version):
                    enc 0/3 → single \x00
                    enc 1/2 → double \x00\x00
         M bytes  actual comment text (same encoding)
+
+    FIX A: loop condition changed from < to <= (same rationale as
+    _read_frame_text).
+
+    FIX B: zero-size frames are skipped with continue instead of break.
     """
     pos = 10
-    while pos + 10 < len(data):
+    while pos + 10 <= len(data):                      # FIX A: <= instead of <
         fid = data[pos:pos+4]
         if fid == b'\x00\x00\x00\x00':
             break
@@ -189,9 +204,12 @@ def _read_comm_frame(data, version):
             sz = _syncsafe_to_int(data[pos+4:pos+8])
         else:
             sz = struct.unpack('>I', data[pos+4:pos+8])[0]
-        pos += 10
-        if sz <= 0 or pos + sz > len(data):
+        if sz <= 0:                                    # FIX B: skip, don't break
+            pos += 10
+            continue
+        if pos + 10 + sz > len(data):
             break
+        pos += 10
         if fid == b'COMM' and sz >= 4:
             payload = data[pos:pos+sz]
             enc  = payload[0]
@@ -213,8 +231,6 @@ def _read_comm_frame(data, version):
                 if null_pos != -1:
                     rest = rest[null_pos+1:]
             # Decode actual comment text.
-            # For UTF-16LE (enc=1) strip null PAIRS to avoid corrupting the last
-            # ASCII codepoint; single-byte rstrip is correct for enc 0, 2, 3.
             if enc == 1:
                 rest = _rstrip_utf16(rest)
             else:
@@ -222,10 +238,8 @@ def _read_comm_frame(data, version):
             if enc == 0:
                 return rest.decode('latin-1', errors='replace').strip()
             elif enc == 1:
-                # UTF-16 with BOM
                 return rest.decode('utf-16', errors='replace').strip()
             elif enc == 2:
-                # UTF-16BE without BOM — must NOT use 'utf-16' (which needs a BOM)
                 return rest.decode('utf-16-be', errors='replace').strip()
             elif enc == 3:
                 return rest.decode('utf-8', errors='replace').strip()
@@ -260,13 +274,8 @@ def read_id3v2(path):
             free  = g[close+1:].strip()
             code  = g[1:close]
             if free:
-                # FIX #2: ID3v2.3 §4.2.1 allows '(N)freeform' where the text
-                # after ')' refines or overrides the numeric code. Prefer it.
                 tag['genre'] = free
             else:
-                # FIX #3: handle special non-numeric codes (RX)=Remix, (CR)=Cover
-                # before attempting int() conversion, so they don't silently fall
-                # through to the except branch and leave the raw string in place.
                 _SPECIAL = {'RX': 'Remix', 'CR': 'Cover'}
                 if code in _SPECIAL:
                     tag['genre'] = _SPECIAL[code]
@@ -275,8 +284,7 @@ def read_id3v2(path):
                         gi = int(code)
                         tag['genre'] = GENRES[gi] if gi < len(GENRES) else g
                     except (ValueError, IndexError):
-                        pass  # leave tag['genre'] as the raw string
-        # FIX #3: use dedicated COMM reader instead of _read_frame_text
+                        pass
         tag['comment'] = _read_comm_frame(data, version)
     except Exception:
         pass
@@ -301,13 +309,8 @@ def _make_comm_frame(text):
         language  (3 bytes)  — e.g. b'eng' (not null-terminated)
         content descriptor   — null-terminated string; empty = single b'\x00'
         text                 — the actual comment bytes
-
-    The descriptor for an empty string is exactly one null byte (the terminator).
-    A previous version erroneously wrote TWO null bytes here, causing every
-    comment to be read back with a leading \x00 character.
     """
     encoded = text.encode('utf-8')
-    # enc=0x03 (UTF-8) | lang=eng | empty descriptor (just the null terminator) | text
     payload = b'\x03' + b'eng' + b'\x00' + encoded
     size = struct.pack('>I', len(payload))
     return b'COMM' + size + b'\x00\x00' + payload
@@ -316,10 +319,12 @@ def write_id3v2(path, tag):
     """
     Rewrite ID3v2.3 tags in the file keeping all audio data intact.
 
-    FIX #9: uses an atomic write strategy — data is written to a sibling
-    temp file in the same directory, then os.replace() swaps it in place.
-    A crash or I/O error during the write therefore never corrupts the
-    original file; at worst the temp file is left behind.
+    Uses an atomic write strategy — data is written to a sibling temp file
+    in the same directory, then os.replace() swaps it in place.
+
+    FIX D: both TYER (ID3v2.3) and TDRC (ID3v2.4) are now written for the
+    year field, so players that only understand the ID3v2.4 TDRC frame still
+    see the correct year after a save.
     """
     try:
         with open(path, 'rb') as f:
@@ -342,6 +347,8 @@ def write_id3v2(path, tag):
 
         # Build new frames
         frames = b''
+
+        # Standard text frames (ID3v2.3 names)
         text_fields = {
             'title':   'TIT2',
             'artist':  'TPE1',
@@ -355,7 +362,12 @@ def write_id3v2(path, tag):
             if val:
                 frames += _make_text_frame(fid, val)
 
-        # FIX #2: COMM gets its own dedicated builder
+        # FIX D: also write TDRC (ID3v2.4 year frame) so that players
+        # which only understand ID3v2.4 tags still find the year field.
+        year_val = str(tag.get('year', '') or '')
+        if year_val:
+            frames += _make_text_frame('TDRC', year_val)
+
         comment = str(tag.get('comment', '') or '')
         if comment:
             frames += _make_comm_frame(comment)
@@ -388,7 +400,7 @@ def write_id3v2(path, tag):
         gi = GENRES.index(genre_name) if genre_name in GENRES else 255
         v1 += bytes([gi])
 
-        # FIX #9: atomic write via temp file in the same directory
+        # Atomic write via temp file in the same directory
         dir_name = os.path.dirname(os.path.abspath(path))
         fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
         try:
@@ -399,7 +411,6 @@ def write_id3v2(path, tag):
                 f.write(v1)
             os.replace(tmp_path, path)
         except Exception:
-            # Clean up the temp file if something went wrong
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -432,12 +443,10 @@ def write_tags(path, tag):
 def sanitize_filename(s):
     """
     Remove characters that are illegal or problematic in filenames.
-    FIX #11: also strips ASCII control characters (0x00-0x1f).
+    Also strips ASCII control characters (0x00-0x1f).
     """
-    # Remove filesystem-illegal characters
     for c in r'/\:*?"<>|':
         s = s.replace(c, '_')
-    # Strip ASCII control characters
     s = re.sub(r'[\x00-\x1f]', '', s)
     return s.strip()
 
@@ -452,23 +461,19 @@ def build_filename(pattern, tag, ext):
     result = result.replace('%track%',  track_val.zfill(2) if track_val else '')
     result = result.replace('%ext%',    ext                                     )
 
-    # Strip the extension, clean the stem, then re-add it.
-    # Guard: when ext is '' (no extension), len(ext)==0 and result[:-0]
-    # evaluates to result[:0] == '', destroying the entire filename.
     if ext and result.lower().endswith(ext.lower()):
         stem = result[:-len(ext)]
     else:
         stem = result
 
-    # Collapse repeated separator sequences left by empty fields (e.g. ' -  - ')
     prev = None
     while prev != stem:
         prev = stem
         stem = re.sub(r' *- *- *', ' - ', stem)
 
-    stem = re.sub(r'[ _-]+$', '', stem)    # trailing orphaned separators
-    stem = re.sub(r'^[ _-]+', '', stem)    # leading orphaned separators
-    stem = re.sub(r' {2,}', ' ', stem)     # consecutive spaces
+    stem = re.sub(r'[ _-]+$', '', stem)
+    stem = re.sub(r'^[ _-]+', '', stem)
+    stem = re.sub(r' {2,}', ' ', stem)
     stem = stem.strip()
 
     return stem + ext

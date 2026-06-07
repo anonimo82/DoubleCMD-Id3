@@ -2,6 +2,14 @@
 mp3tag_rename.py - Rename MP3 files from ID3 tags with live preview
 Usage: python mp3tag_rename.py [file1.mp3 file2.mp3 ...]
        If launched without arguments, opens a file selection dialog.
+
+FIX C: _do_rename now uses os.path.samefile() to compare new_path and path
+       instead of a plain string inequality check. This allows case-only
+       renames (e.g. 'money.mp3' -> 'Money.mp3') to work correctly on
+       case-insensitive filesystems (Windows, macOS HFS+), where
+       os.path.exists(new_path) returns True for the same file and the old
+       string check would incorrectly abort the operation with "file already
+       exists".
 """
 
 import sys
@@ -13,6 +21,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import id3lib
 
 DEFAULT_PATTERN = '%track% - %artist% - %title%'
+
+
+def _is_same_file(p1, p2):
+    """
+    Return True if p1 and p2 refer to the same filesystem entry.
+    Falls back to False if either path does not exist (os.path.samefile
+    raises OSError when a path is missing).
+    """
+    try:
+        return os.path.samefile(p1, p2)
+    except OSError:
+        return False
+
 
 class RenameDialog(tk.Tk):
     def __init__(self, files=None):
@@ -137,7 +158,12 @@ class RenameDialog(tk.Tk):
             if old == nn or seen[nn] > 1:
                 continue
             new_path = os.path.join(os.path.dirname(path), nn)
-            if os.path.exists(new_path) and new_path != path:
+            # FIX C: use os.path.samefile() so that a case-only rename
+            # (e.g. 'money.mp3' -> 'Money.mp3') is not blocked on
+            # case-insensitive filesystems (Windows, macOS HFS+).
+            # _is_same_file() returns False when new_path does not yet
+            # exist, so the guard still prevents overwriting unrelated files.
+            if os.path.exists(new_path) and not _is_same_file(new_path, path):
                 errors.append(f'{old} (file already exists)')
                 continue
             try:
