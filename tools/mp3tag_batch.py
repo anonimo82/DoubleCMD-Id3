@@ -4,18 +4,8 @@ Usage: python mp3tag_batch.py [file1.mp3 file2.mp3 ...]
        If launched without arguments, opens a file selection dialog.
 
 Tabs:
-  - Batch Tag Editor : spreadsheet-style inline editor for ID3 tags
-  - Tags from Filename: populate tags by parsing filenames against a pattern
-
-Fixes applied:
-  - FIX #6: after _save_all(), self.tags is rebuilt from the tree values so
-    that the in-memory state always matches what is displayed (was possible
-    to get diverged on multiple successive edits + saves).
-  - FIX #10: closing the window while there are unsaved changes now asks for
-    confirmation, preventing accidental data loss.
-  - FIX #5: self.modified is only cleared for rows that were successfully
-    written; failed rows are kept so the user can retry with "Save all"
-    without re-editing every field manually.
+  - Batch Tag Editor   : spreadsheet-style inline editor for ID3 tags
+  - Tags from Filename : populate tags by parsing filenames against a pattern
 """
 
 import sys
@@ -27,7 +17,7 @@ from tkinter import ttk, messagebox, filedialog
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import id3lib
 
-# ── Shared column definitions ──────────────────────────────────────────────
+# ── Column definitions ─────────────────────────────────────────────────────
 COLS = [
     ('File',    None,       220, False),
     ('Title',   'title',    160, True),
@@ -40,25 +30,21 @@ COLS = [
 ]
 
 TAG_VARS = ['title', 'artist', 'album', 'year', 'track', 'genre', 'comment', 'ext']
-
 DEFAULT_PATTERN = '%track% - %artist% - %title%'
+
 
 # ── Pattern → regex engine ─────────────────────────────────────────────────
 
 def pattern_to_regex(pattern):
     """
-    Convert a user pattern like '%track% - %artist% - %title%' into a compiled
-    regex with named capture groups, tolerating common separator variants.
+    Convert a pattern like '%track% - %artist% - %title%' into a compiled
+    regex with named capture groups, tolerating separator variants.
 
     Separator strategy:
-      - A separator containing at least one strong char (dash, underscore, dot)
-        becomes \\s*[-_.]+\\s*  →  matches ' - ', '_', '. ', '---' etc.
-      - A whitespace-only separator becomes \\s+  →  matches one or more spaces.
-
-    This keeps multi-word fields like 'Pink Floyd' or 'Dark Side of the Moon'
-    intact: an internal space is never confused with a strong separator.
-
-    Returns (compiled_regex, [var_name, ...]) or raises ValueError on bad pattern.
+      - Separator with a strong char (-, _, .) → \\s*[-_.]+\\s*
+        Matches ' - ', '_', '. ', '---' etc. but NOT a plain space,
+        so multi-word fields like 'Pink Floyd' are never split.
+      - Whitespace-only separator → \\s+
     """
     tokens = re.split(r'(%(?:' + '|'.join(TAG_VARS) + r')%)', pattern)
     var_names = [re.match(r'^%(\w+)%$', t).group(1)
@@ -66,51 +52,37 @@ def pattern_to_regex(pattern):
 
     if not var_names:
         raise ValueError('Pattern contains no recognised variables.')
-
-    # Detect duplicate variable names
     seen = set()
     for v in var_names:
         if v in seen:
-            raise ValueError(f'Variable %{v}% appears more than once in pattern.')
+            raise ValueError(f'Variable %{v}% appears more than once.')
         seen.add(v)
 
     regex_parts = []
     var_count = 0
     total_vars = len(var_names)
-
     for tok in tokens:
         m = re.match(r'^%(\w+)%$', tok)
         if m:
             var = m.group(1)
             var_count += 1
+            is_last = (var_count == total_vars)
             if var == 'ext':
-                # %ext% always matches a file extension: dot + word chars.
-                # Using a dedicated pattern prevents the generic separator
-                # logic from misinterpreting the dot in '.mp3' as a separator.
                 regex_parts.append(r'(?P<ext>\.\w+)')
             elif is_last:
                 regex_parts.append(f'(?P<{var}>.+)')
             else:
                 regex_parts.append(f'(?P<{var}>.+?)')
         elif tok:
-            stripped = tok.strip()
-            if re.search(r'[-_.]', stripped):
-                # Strong separator present → require at least one strong char.
-                sep_re = r'\s*[-_.]+\s*'
+            if re.search(r'[-_.]', tok.strip()):
+                regex_parts.append(r'\s*[-_.]+\s*')
             else:
-                # Whitespace-only separator.
-                sep_re = r'\s+'
-            regex_parts.append(sep_re)
-
+                regex_parts.append(r'\s+')
     return re.compile('^' + ''.join(regex_parts) + '$', re.IGNORECASE), var_names
 
 
 def parse_filename(pattern, filename):
-    """
-    Match *filename* (without extension) against *pattern*.
-    Returns a dict of {field: value} for matched variables, or None on no match.
-    Values are stripped of leading/trailing whitespace.
-    """
+    """Match filename against pattern. Returns dict or None."""
     try:
         rx, _ = pattern_to_regex(pattern)
     except ValueError:
@@ -121,21 +93,44 @@ def parse_filename(pattern, filename):
     return {k: v.strip() for k, v in m.groupdict().items() if v is not None}
 
 
-# ── Main application window ────────────────────────────────────────────────
+# ── Main application ────────────────────────────────────────────────────────
 
 class BatchEditor(tk.Tk):
-    def __init__(self, files):
+    """
+    Single-window application.  Subclasses tk.Tk so there is exactly one
+    Tk instance for the whole process — no second Tk() is ever created.
+    The optional file-open dialog is opened as a child of this window,
+    before the main UI is built.
+    """
+
+    def __init__(self, files=None):
         super().__init__()
+        self.withdraw()                     # hide until UI is ready
+
         self.title('Batch Tag Editor — Mp3Tag for DoubleCMD')
         self.geometry('980x580')
         self.minsize(700, 440)
-        self.files = list(files)
-        self.tags  = []
+        self.protocol('WM_DELETE_WINDOW', self._on_close)
+
+        # If no files supplied, ask the user now (we are the Tk root already)
+        if not files:
+            paths = filedialog.askopenfilenames(
+                title='Select MP3 files',
+                filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')],
+                parent=self)
+            if not paths:
+                self.destroy()
+                return
+            files = list(paths)
+
+        self.files    = list(files)
+        self.tags     = []
         self.modified = {}
+
         self._build_ui()
         self._load_files()
         self._center()
-        self.protocol('WM_DELETE_WINDOW', self._on_close)
+        self.deiconify()                    # show now that everything is ready
 
     def _center(self):
         self.update_idletasks()
@@ -149,17 +144,14 @@ class BatchEditor(tk.Tk):
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill='both', expand=True, padx=6, pady=(6, 0))
 
-        # Tab 1: Batch Tag Editor
         self._tab_editor = ttk.Frame(self.notebook)
         self.notebook.add(self._tab_editor, text='  Batch Tag Editor  ')
         self._build_editor_tab(self._tab_editor)
 
-        # Tab 2: Tags from Filename
         self._tab_fromfile = ttk.Frame(self.notebook)
         self.notebook.add(self._tab_fromfile, text='  Tags from Filename  ')
         self._build_fromfile_tab(self._tab_fromfile)
 
-        # Shared status bar
         self.status = ttk.Label(self, text='', foreground='gray',
                                 font=('Segoe UI', 8))
         self.status.pack(side='bottom', fill='x', padx=6, pady=2)
@@ -202,7 +194,6 @@ class BatchEditor(tk.Tk):
     # ── Tab 2: Tags from Filename ─────────────────────────────────────────
 
     def _build_fromfile_tab(self, parent):
-        # ── Pattern row
         pf = ttk.Frame(parent, padding=(10, 8, 10, 4))
         pf.pack(fill='x')
         ttk.Label(pf, text='Pattern:').pack(side='left')
@@ -211,29 +202,20 @@ class BatchEditor(tk.Tk):
         ttk.Entry(pf, textvariable=self._ff_pattern_var,
                   width=52).pack(side='left', padx=6)
 
-        # ── Variable hint
-        ttk.Label(
-            parent,
-            text='Variables: %title%  %artist%  %album%  %year%  %track%'
-                 '  %genre%  %comment%  %ext%',
-            foreground='gray', font=('Segoe UI', 8),
-        ).pack(anchor='w', padx=10)
+        ttk.Label(parent,
+                  text='Variables: %title%  %artist%  %album%  %year%'
+                       '  %track%  %genre%  %comment%  %ext%',
+                  foreground='gray', font=('Segoe UI', 8)).pack(anchor='w', padx=10)
+        ttk.Label(parent,
+                  text='Separators: " - " also matches  _  .  and mixed spacing.',
+                  foreground='gray', font=('Segoe UI', 8)).pack(
+                      anchor='w', padx=10, pady=(0, 4))
 
-        # ── Separator flexibility hint
-        ttk.Label(
-            parent,
-            text='Separators: " - " also matches  _  .  and mixed spacing.',
-            foreground='gray', font=('Segoe UI', 8),
-        ).pack(anchor='w', padx=10, pady=(0, 4))
-
-        # ── Preview tree
         frame = ttk.Frame(parent, padding=(10, 0, 10, 0))
         frame.pack(fill='both', expand=True)
 
-        ff_cols = ('filename', 'title', 'artist', 'album',
-                   'year', 'track', 'genre', 'comment')
-        ff_heads = ('Filename', 'Title', 'Artist', 'Album',
-                    'Year', 'Track', 'Genre', 'Comment')
+        ff_cols   = ('filename','title','artist','album','year','track','genre','comment')
+        ff_heads  = ('Filename','Title','Artist','Album','Year','Track','Genre','Comment')
         ff_widths = (200, 140, 120, 120, 48, 48, 90, 110)
 
         self._ff_tree = ttk.Treeview(frame, columns=ff_cols,
@@ -242,8 +224,7 @@ class BatchEditor(tk.Tk):
                              command=self._ff_tree.yview)
         hsb = ttk.Scrollbar(frame, orient='horizontal',
                              command=self._ff_tree.xview)
-        self._ff_tree.configure(yscrollcommand=vsb.set,
-                                 xscrollcommand=hsb.set)
+        self._ff_tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
         for col, head, width in zip(ff_cols, ff_heads, ff_widths):
             self._ff_tree.heading(col, text=head)
@@ -258,7 +239,6 @@ class BatchEditor(tk.Tk):
         self._ff_tree.tag_configure('ok',      foreground='#0070c0')
         self._ff_tree.tag_configure('nomatch', foreground='gray')
 
-        # ── Bottom bar
         bf = ttk.Frame(parent, padding=(10, 6))
         bf.pack(fill='x')
         self._ff_info = ttk.Label(bf, text='', foreground='gray',
@@ -269,15 +249,12 @@ class BatchEditor(tk.Tk):
         ttk.Button(bf, text='Close',
                    command=self._on_close).pack(side='right', padx=4)
 
-        # Initial preview
         self._ff_update_preview()
 
     def _ff_update_preview(self):
-        """Rebuild the Tags-from-Filename preview grid."""
         self._ff_tree.delete(*self._ff_tree.get_children())
         pattern = self._ff_pattern_var.get().strip()
 
-        # Validate pattern once
         try:
             pattern_to_regex(pattern)
             pattern_ok = True
@@ -287,49 +264,34 @@ class BatchEditor(tk.Tk):
 
         matched = 0
         for path in self.files:
-            stem, ext = os.path.splitext(os.path.basename(path))
-            if pattern_ok:
-                parsed = parse_filename(pattern, stem)
-            else:
-                parsed = None
+            stem, _ = os.path.splitext(os.path.basename(path))
+            parsed = parse_filename(pattern, stem) if pattern_ok else None
 
             if parsed:
-                row = (
-                    os.path.basename(path),
-                    parsed.get('title',   ''),
-                    parsed.get('artist',  ''),
-                    parsed.get('album',   ''),
-                    parsed.get('year',    ''),
-                    parsed.get('track',   ''),
-                    parsed.get('genre',   ''),
-                    parsed.get('comment', ''),
-                )
+                row = (os.path.basename(path),
+                       parsed.get('title',''), parsed.get('artist',''),
+                       parsed.get('album',''), parsed.get('year',''),
+                       parsed.get('track',''), parsed.get('genre',''),
+                       parsed.get('comment',''))
                 self._ff_tree.insert('', 'end', values=row, tags=('ok',))
                 matched += 1
             else:
-                # Show filename only, other columns empty/grey
-                row = (os.path.basename(path),) + ('',) * 7
-                self._ff_tree.insert('', 'end', values=row, tags=('nomatch',))
+                self._ff_tree.insert('', 'end',
+                                     values=(os.path.basename(path),)+(''*7,)*7,
+                                     tags=('nomatch',))
 
-        total = len(self.files)
-        no_match = total - matched
-        info = f'{total} files  •  {matched} matched'
+        no_match = len(self.files) - matched
+        info = f'{len(self.files)} files  •  {matched} matched'
         if no_match:
             info += f'  •  {no_match} unmatched (gray)'
         self._ff_info.config(text=info)
 
     def _ff_apply(self):
-        """
-        Write parsed tags back to self.tags and mark rows as modified,
-        then switch to the Batch Tag Editor tab so the user can review
-        before saving.
-        """
         pattern = self._ff_pattern_var.get().strip()
         try:
             pattern_to_regex(pattern)
         except ValueError as e:
-            messagebox.showerror('Tags from Filename',
-                                 f'Invalid pattern: {e}')
+            messagebox.showerror('Tags from Filename', f'Invalid pattern: {e}')
             return
 
         applied = 0
@@ -340,7 +302,7 @@ class BatchEditor(tk.Tk):
                 continue
             for field, value in parsed.items():
                 if field == 'ext':
-                    continue   # never write %ext% as a tag field
+                    continue
                 if field in self.tags[i]:
                     self.tags[i][field] = value
                     self.modified[(i, field)] = value
@@ -351,29 +313,25 @@ class BatchEditor(tk.Tk):
                                 'No filenames matched the pattern.')
             return
 
-        # Refresh the Batch Tag Editor tree so the user can review + save
         self._reload_editor_tree()
-        self.notebook.select(0)   # switch to Batch Tag Editor tab
+        self.notebook.select(0)
         messagebox.showinfo(
             'Tags from Filename',
             f'Tags parsed from {applied} filename(s).\n\n'
-            f'Review them in the Batch Tag Editor, then click "Save all".',
-        )
+            f'Review them in the Batch Tag Editor, then click "Save all".')
 
     def _reload_editor_tree(self):
-        """Refresh the Batch Tag Editor grid from self.tags (after parsing)."""
         self.tree.delete(*self.tree.get_children())
         for i, (path, tag) in enumerate(zip(self.files, self.tags)):
             row = [os.path.basename(path)]
             for _, key, _, _ in COLS[1:]:
                 row.append(tag.get(key, ''))
             iid = self.tree.insert('', 'end', values=row)
-            # Highlight rows that were parsed (have pending modifications)
             if any(k[0] == i for k in self.modified):
                 self.tree.item(iid, tags=('modified',))
         self.tree.tag_configure('modified', background='#e8f4ff')
 
-    # ── Shared: load / add files ──────────────────────────────────────────
+    # ── Shared helpers ────────────────────────────────────────────────────
 
     def _load_files(self):
         self.tree.delete(*self.tree.get_children())
@@ -394,7 +352,8 @@ class BatchEditor(tk.Tk):
     def _add_files(self):
         paths = filedialog.askopenfilenames(
             title='Select MP3 files',
-            filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
+            filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')],
+            parent=self)
         if not paths:
             return
         self.files.extend(paths)
@@ -405,19 +364,15 @@ class BatchEditor(tk.Tk):
             for _, key, _, _ in COLS[1:]:
                 row.append(tag.get(key, ''))
             self.tree.insert('', 'end', values=row)
-        n = len(self.files)
-        self.status.config(text=f'{n} files loaded.')
+        self.status.config(text=f'{len(self.files)} files loaded.')
         self._ff_update_preview()
-
-    # ── Close guard ───────────────────────────────────────────────────────
 
     def _on_close(self):
         if self.modified:
             if not messagebox.askyesno(
                 'Unsaved changes',
                 'There are unsaved changes. Close without saving?',
-                icon='warning',
-            ):
+                icon='warning'):
                 return
         self.destroy()
 
@@ -485,8 +440,7 @@ class BatchEditor(tk.Tk):
         bf = ttk.Frame(popup)
         bf.pack(padx=12, pady=(0, 10))
         ttk.Button(bf, text='OK',     command=confirm).pack(side='left', padx=4)
-        ttk.Button(bf, text='Cancel', command=popup.destroy).pack(
-            side='left', padx=4)
+        ttk.Button(bf, text='Cancel', command=popup.destroy).pack(side='left', padx=4)
 
         popup.update_idletasks()
         pw, ph = popup.winfo_width(), popup.winfo_height()
@@ -513,24 +467,21 @@ class BatchEditor(tk.Tk):
                     errors.append(os.path.basename(path))
                     failed_rows.add(i)
 
-        # Resync self.tags from the tree (FIX #6)
         for i, rid in enumerate(self.tree.get_children()):
             vals = self.tree.item(rid, 'values')
             for col_idx, (_, key, _, editable) in enumerate(COLS):
                 if editable and key:
                     self.tags[i][key] = vals[col_idx]
-            # Remove highlight from successfully saved rows
             if i not in failed_rows:
                 self.tree.item(rid, tags=())
 
-        # Keep failed rows in self.modified for retry (FIX #5)
         for k in [k for k in self.modified if k[0] not in failed_rows]:
             del self.modified[k]
 
         if errors:
             messagebox.showerror(
                 'Mp3Tag',
-                f'Errors saving (will retry on next Save all):\n'
+                'Errors saving (will retry on next Save all):\n'
                 + '\n'.join(errors))
         else:
             messagebox.showinfo('Mp3Tag', 'Saved successfully!')
@@ -556,19 +507,9 @@ def main():
         files = [f for f in args
                  if f.lower().endswith('.mp3') and os.path.isfile(f)]
 
-    if not files:
-        root = tk.Tk()
-        root.withdraw()
-        paths = filedialog.askopenfilenames(
-            title='Select MP3 files',
-            filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
-        root.destroy()
-        if paths:
-            files = list(paths)
-        else:
-            sys.exit(0)
-
-    app = BatchEditor(files)
+    # BatchEditor subclasses tk.Tk, so it IS the one-and-only Tk instance.
+    # If files is empty it opens the file dialog itself before building the UI.
+    app = BatchEditor(files if files else None)
     app.mainloop()
 
 
