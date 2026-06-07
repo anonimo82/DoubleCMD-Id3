@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectOptions>
+    <Version Value="11"/>
+    <General>
+      <Flags>
+        <MainUnitHasCreateFormStatements Value="False"/>
+        <MainUnitHasTitleStatement Value="False"/>
+        <MainUnitHasScaledStatement Value="False"/>
+      </Flags>
+      <SessionStorage Value="InProjectDir"/>
+      <Title Value="Mp3TagDsx"/>
+      <UseXPManifest Value="False"/>
+    </General>
+    <BuildModes Count="1">
+      <Item1 Name="Default" Default="True"/>
+    </BuildModes>
+    <PublishOptions>
+      <Version Value="2"/>
+    </PublishOptions>
+    <RunParams>
+      <FormatVersion Value="2"/>
+    </RunParams>
+    <Units Count="2">
+      <Unit0>
+        <Filename Value="Mp3TagDsx.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit0>
+      <Unit1>
+        <Filename Value="../shared/ID3Tags.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit1>
+    </Units>
+  </ProjectOptions>
+  <Compiler>
+    <Options>
+      <Version Value="11"/>
+      <Target>
+        <Filename Value="Mp3TagDsx"/>
+      </Target>
+      <SearchPaths>
+        <OtherUnitFiles Value="../shared"/>
+        <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+      </SearchPaths>
+      <Linking>
+        <Options>
+          <Win32>
+            <GraphicApplication Value="False"/>
+          </Win32>
+        </Options>
+        <LinkSmart Value="True"/>
+      </Linking>
+    </Options>
+  </Compiler>
+</CONFIG>
