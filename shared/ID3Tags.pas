@@ -161,6 +161,17 @@ begin
   end;
 end;
 
+procedure CopyStrToField(const Src: string; var Dest; MaxLen: Integer);
+var
+  S : AnsiString;
+  L : Integer;
+begin
+  S := AnsiString(Src);
+  L := Length(S);
+  if L > MaxLen then L := MaxLen;
+  if L > 0 then Move(S[1], Dest, L);
+end;
+
 function WriteID3v1(const AFileName: string; const ATag: TTagInfo): Boolean;
 var
   F   : TFileStream;
@@ -172,7 +183,7 @@ begin
     F := TFileStream.Create(AFileName, fmOpenReadWrite or fmShareDenyWrite);
     try
       FillChar(v1, SizeOf(v1), 0);
-      // Rimuovi tag v1 esistente
+      // Rimuovi tag v1 esistente se presente
       if F.Size >= 128 then
       begin
         F.Seek(-128, soEnd);
@@ -184,20 +195,11 @@ begin
       FillChar(v1, SizeOf(v1), 0);
       v1.Header[0] := 'T'; v1.Header[1] := 'A'; v1.Header[2] := 'G';
 
-      procedure CopyStr(const Src: string; var Dest; MaxLen: Integer);
-      var S: AnsiString; L: Integer;
-      begin
-        S := AnsiString(Src);
-        L := Length(S);
-        if L > MaxLen then L := MaxLen;
-        if L > 0 then Move(S[1], Dest, L);
-      end;
-
-      CopyStr(ATag.Title,  v1.Title,   30);
-      CopyStr(ATag.Artist, v1.Artist,  30);
-      CopyStr(ATag.Album,  v1.Album,   30);
-      CopyStr(ATag.Year,   v1.Year,     4);
-      CopyStr(ATag.Comment,v1.Comment, 28);
+      CopyStrToField(ATag.Title,   v1.Title,   30);
+      CopyStrToField(ATag.Artist,  v1.Artist,  30);
+      CopyStrToField(ATag.Album,   v1.Album,   30);
+      CopyStrToField(ATag.Year,    v1.Year,     4);
+      CopyStrToField(ATag.Comment, v1.Comment, 28);
 
       if TryStrToInt(ATag.Track, Num) then
       begin

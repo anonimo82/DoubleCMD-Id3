@@ -34,18 +34,17 @@ mkdir -p "$OUTPUT_DIR"
 
 # ---- Modalità debug o release ----
 if [ "${1}" = "debug" ]; then
-  BUILD_MODE="--build-mode=Debug"
+  EXTRA_FLAGS="-dDEBUG -g"
   echo "Modalità: DEBUG"
 else
-  BUILD_MODE="--build-mode=Release"
+  EXTRA_FLAGS="-O2"
   echo "Modalità: RELEASE"
 fi
 
 # ---- Compila Content Plugin (WDX) ----
 echo ""
 echo "=== Compilazione Content Plugin (WDX) ==="
-"$LAZBUILD" $BUILD_MODE \
-  --os="$TARGETOS" \
+"$LAZBUILD" --build-all $EXTRA_FLAGS \
   content_plugin/Mp3TagWdx.lpi
 
 # Individua il file generato (.so su Linux, .dylib su macOS)
@@ -60,8 +59,7 @@ echo "OK → $OUTPUT_DIR/Mp3TagWdx.wdx"
 # ---- Compila DSX Plugin ----
 echo ""
 echo "=== Compilazione DSX Plugin ==="
-"$LAZBUILD" $BUILD_MODE \
-  --os="$TARGETOS" \
+"$LAZBUILD" --build-all $EXTRA_FLAGS \
   dsx_plugin/Mp3TagDsx.lpi
 
 DSX_SRC=$(find dsx_plugin -maxdepth 3 \( -name "*.so" -o -name "*.dylib" \) | head -1)

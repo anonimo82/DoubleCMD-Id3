@@ -11,6 +11,7 @@
       <SessionStorage Value="InProjectDir"/>
       <Title Value="Mp3TagWdx"/>
       <UseXPManifest Value="False"/>
+      <ApplicationType Value="Library"/>
     </General>
     <BuildModes Count="1">
       <Item1 Name="Default" Default="True"/>
@@ -27,7 +28,7 @@
         <IsPartOfProject Value="True"/>
       </Unit0>
       <Unit1>
-        <Filename Value="../shared/ID3Tags.pas"/>
+        <Filename Value="ID3Tags.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit1>
     </Units>
@@ -36,10 +37,9 @@
     <Options>
       <Version Value="11"/>
       <Target>
-        <Filename Value="Mp3TagWdx"/>
+        <Filename Value="../output/Mp3TagWdx"/>
       </Target>
       <SearchPaths>
-        <OtherUnitFiles Value="../shared"/>
         <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
       <Linking>

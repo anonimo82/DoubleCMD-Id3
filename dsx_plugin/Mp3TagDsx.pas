@@ -1,38 +1,28 @@
 library Mp3TagDsx;
 
 {
-  Mp3TagDsx.pas  –  DSX Plugin per DoubleCMD
-  ===========================================
-  Aggiunge voci di menu contestuale per:
-    1. Mostra tag         – finestra informazioni tag del file selezionato
-    2. Rinomina dai tag   – rinomina con pattern (es. %track% - %artist% - %title%)
-    3. Editor tag         – modifica tag singolo file
-    4. Batch tag editor   – modifica tag su tutti i file MP3 selezionati
-    5. Pulizia tag        – rimuove spazi doppi e caratteri non validi
-
-  Compilare con:
-    lazbuild Mp3TagDsx.lpi
-  Output: Mp3TagDsx.dsx
+  Mp3TagDsx.pas  -  DSX Plugin per DoubleCMD
+  Aggiunge voci di menu contestuale per gestione tag ID3 MP3.
 }
 
 {$mode objfpc}{$H+}
 
 uses
+  Interfaces,
   SysUtils, Classes, Dialogs, Forms, Controls, StdCtrls, ExtCtrls,
   ComCtrls, Grids, LCLType, ID3Tags;
 
-// ---- DSX API Constants ----
 const
-  DSX_OK            = 0;
-  DSX_ERROR         = 1;
-  DSX_NOTIMPL       = 2;
+  DSX_OK         = 0;
+  DSX_ERROR      = 1;
+  DSX_NOTIMPL    = 2;
 
-  MENUITEM_SHOW_TAGS    = 0;
-  MENUITEM_RENAME       = 1;
-  MENUITEM_EDIT_TAG     = 2;
-  MENUITEM_BATCH_EDIT   = 3;
-  MENUITEM_CLEAN_TAGS   = 4;
-  MENUITEM_COUNT        = 5;
+  MENUITEM_SHOW_TAGS  = 0;
+  MENUITEM_RENAME     = 1;
+  MENUITEM_EDIT_TAG   = 2;
+  MENUITEM_BATCH_EDIT = 3;
+  MENUITEM_CLEAN_TAGS = 4;
+  MENUITEM_COUNT      = 5;
 
 // ---- Form: Editor tag singolo file ----
 
@@ -49,14 +39,11 @@ type
     btnCancel  : TButton;
     procedure FormCreate(Sender: TObject);
   public
-    Tag: TTagInfo;
-    procedure LoadTag(const ATag: TTagInfo);
-    procedure SaveTag(out ATag: TTagInfo);
+    procedure LoadTagData(const ATag: TTagInfo);
+    procedure SaveTagData(out ATag: TTagInfo);
   end;
 
 procedure TTagEditorForm.FormCreate(Sender: TObject);
-var
-  Row: Integer;
 
   procedure MakeRow(var lbl: TLabel; const LblText: string;
                     var ed: TEdit; ARow: Integer);
@@ -108,7 +95,7 @@ begin
   btnCancel.Width   := 80;
 end;
 
-procedure TTagEditorForm.LoadTag(const ATag: TTagInfo);
+procedure TTagEditorForm.LoadTagData(const ATag: TTagInfo);
 begin
   edTitle.Text   := ATag.Title;
   edArtist.Text  := ATag.Artist;
@@ -119,7 +106,7 @@ begin
   edComment.Text := ATag.Comment;
 end;
 
-procedure TTagEditorForm.SaveTag(out ATag: TTagInfo);
+procedure TTagEditorForm.SaveTagData(out ATag: TTagInfo);
 begin
   ATag.Title   := Trim(edTitle.Text);
   ATag.Artist  := Trim(edArtist.Text);
@@ -134,21 +121,21 @@ end;
 
 type
   TBatchEditorForm = class(TForm)
-    Grid       : TStringGrid;
-    btnSave    : TButton;
-    btnCancel  : TButton;
-    lblInfo    : TLabel;
+    Grid      : TStringGrid;
+    btnSave   : TButton;
+    btnCancel : TButton;
+    lblInfo   : TLabel;
     procedure FormCreate(Sender: TObject);
     procedure btnSaveClick(Sender: TObject);
   public
-    Files     : TStringList;
-    Tags      : array of TTagInfo;
+    Files    : TStringList;
+    TagsData : array of TTagInfo;
     procedure LoadFiles(AFiles: TStringList);
   end;
 
 procedure TBatchEditorForm.FormCreate(Sender: TObject);
 begin
-  Caption  := 'Batch Tag Editor – MP3Tag per DoubleCMD';
+  Caption  := 'Batch Tag Editor - Mp3Tag per DoubleCMD';
   Width    := 900;
   Height   := 500;
   Position := poScreenCenter;
@@ -171,7 +158,6 @@ begin
   Grid.ColCount  := 8;
   Grid.Options   := Grid.Options + [goEditing];
 
-  // Intestazioni
   Grid.Cells[0, 0] := 'File';
   Grid.Cells[1, 0] := 'Titolo';
   Grid.Cells[2, 0] := 'Artista';
@@ -214,41 +200,41 @@ var
   I: Integer;
 begin
   Files := AFiles;
-  SetLength(Tags, AFiles.Count);
+  SetLength(TagsData, AFiles.Count);
   Grid.RowCount := AFiles.Count + 1;
   for I := 0 to AFiles.Count - 1 do
   begin
-    ReadTagsFromFile(AFiles[I], Tags[I]);
+    ReadTagsFromFile(AFiles[I], TagsData[I]);
     Grid.Cells[0, I+1] := ExtractFileName(AFiles[I]);
-    Grid.Cells[1, I+1] := Tags[I].Title;
-    Grid.Cells[2, I+1] := Tags[I].Artist;
-    Grid.Cells[3, I+1] := Tags[I].Album;
-    Grid.Cells[4, I+1] := Tags[I].Year;
-    Grid.Cells[5, I+1] := Tags[I].Track;
-    Grid.Cells[6, I+1] := Tags[I].Genre;
-    Grid.Cells[7, I+1] := Tags[I].Comment;
+    Grid.Cells[1, I+1] := TagsData[I].Title;
+    Grid.Cells[2, I+1] := TagsData[I].Artist;
+    Grid.Cells[3, I+1] := TagsData[I].Album;
+    Grid.Cells[4, I+1] := TagsData[I].Year;
+    Grid.Cells[5, I+1] := TagsData[I].Track;
+    Grid.Cells[6, I+1] := TagsData[I].Genre;
+    Grid.Cells[7, I+1] := TagsData[I].Comment;
   end;
 end;
 
 procedure TBatchEditorForm.btnSaveClick(Sender: TObject);
 var
-  I    : Integer;
-  Tag  : TTagInfo;
-  Err  : TStringList;
+  I       : Integer;
+  TD      : TTagInfo;
+  Err     : TStringList;
 begin
   Err := TStringList.Create;
   try
     for I := 0 to Files.Count - 1 do
     begin
-      Tag          := Tags[I];
-      Tag.Title    := Grid.Cells[1, I+1];
-      Tag.Artist   := Grid.Cells[2, I+1];
-      Tag.Album    := Grid.Cells[3, I+1];
-      Tag.Year     := Grid.Cells[4, I+1];
-      Tag.Track    := Grid.Cells[5, I+1];
-      Tag.Genre    := Grid.Cells[6, I+1];
-      Tag.Comment  := Grid.Cells[7, I+1];
-      if not WriteTagsToFile(Files[I], Tag) then
+      TD         := TagsData[I];
+      TD.Title   := Grid.Cells[1, I+1];
+      TD.Artist  := Grid.Cells[2, I+1];
+      TD.Album   := Grid.Cells[3, I+1];
+      TD.Year    := Grid.Cells[4, I+1];
+      TD.Track   := Grid.Cells[5, I+1];
+      TD.Genre   := Grid.Cells[6, I+1];
+      TD.Comment := Grid.Cells[7, I+1];
+      if not WriteTagsToFile(Files[I], TD) then
         Err.Add(ExtractFileName(Files[I]));
     end;
     if Err.Count = 0 then
@@ -274,8 +260,8 @@ type
     procedure edPatternChange(Sender: TObject);
     procedure btnRenameClick(Sender: TObject);
   public
-    Files: TStringList;
-    Tags : array of TTagInfo;
+    Files    : TStringList;
+    TagsData : array of TTagInfo;
     procedure LoadFiles(AFiles: TStringList);
     function  BuildPreview: TStringList;
   end;
@@ -340,34 +326,32 @@ var
   I: Integer;
 begin
   Files := AFiles;
-  SetLength(Tags, AFiles.Count);
+  SetLength(TagsData, AFiles.Count);
   for I := 0 to AFiles.Count - 1 do
-    ReadTagsFromFile(AFiles[I], Tags[I]);
+    ReadTagsFromFile(AFiles[I], TagsData[I]);
   edPatternChange(nil);
 end;
 
 function TRenameForm.BuildPreview: TStringList;
 var
-  I, J  : Integer;
-  NewName, Dir, Ext: string;
+  I, J    : Integer;
+  NewName : string;
+  Dir, Ext: string;
 begin
   Result := TStringList.Create;
   for I := 0 to Files.Count - 1 do
   begin
     Dir  := ExtractFilePath(Files[I]);
     Ext  := LowerCase(ExtractFileExt(Files[I]));
-    NewName := BuildFilenameFromPattern(edPattern.Text, Tags[I], Ext);
-    // Evita collisioni aggiungendo suffisso numerico
+    NewName := BuildFilenameFromPattern(edPattern.Text, TagsData[I], Ext);
     J := 1;
     while FileExists(Dir + NewName) and (Dir + NewName <> Files[I]) do
     begin
       Inc(J);
-      NewName := BuildFilenameFromPattern(edPattern.Text, Tags[I], '') +
+      NewName := BuildFilenameFromPattern(edPattern.Text, TagsData[I], '') +
                  Format(' (%d)', [J]) + Ext;
     end;
-    Result.AddObject(ExtractFileName(Files[I]) + '  →  ' + NewName,
-                     TObject(Pointer(I)));
-    Result.Objects[I] := TObject(PtrUInt(I));
+    Result.Add(ExtractFileName(Files[I]) + '  ->  ' + NewName);
   end;
 end;
 
@@ -396,7 +380,7 @@ begin
     begin
       Dir  := ExtractFilePath(Files[I]);
       Ext  := LowerCase(ExtractFileExt(Files[I]));
-      NewName := BuildFilenameFromPattern(edPattern.Text, Tags[I], Ext);
+      NewName := BuildFilenameFromPattern(edPattern.Text, TagsData[I], Ext);
       OldPath := Files[I];
       NewPath := Dir + NewName;
       if OldPath <> NewPath then
@@ -440,52 +424,48 @@ begin
   Result := ItemIndex;
 end;
 
-// Eseguito quando l'utente sceglie una voce di menu
-// FileList: lista di file separati da #0, termina con #0#0
 function DsxExecuteFile(MainWin   : THandle;
                         MenuItemID: Integer;
                         FileList  : PAnsiChar): Integer; cdecl;
 var
-  Files   : TStringList;
-  P       : PAnsiChar;
-  Tag     : TTagInfo;
-  Msg     : string;
-  EdForm  : TTagEditorForm;
-  BatchFrm: TBatchEditorForm;
-  RenFrm  : TRenameForm;
-  I       : Integer;
+  Files    : TStringList;
+  P        : PAnsiChar;
+  TagData  : TTagInfo;
+  Msg      : string;
+  EdForm   : TTagEditorForm;
+  BatchFrm : TBatchEditorForm;
+  RenFrm   : TRenameForm;
+  I        : Integer;
 begin
   Result := DSX_OK;
 
-  // Costruisci lista file da buffer separato da #0
   Files := TStringList.Create;
   try
     P := FileList;
-    while (P^ <> #0) do
+    while P^ <> #0 do
     begin
-      Files.Add(string(P));
-      Inc(P, Length(string(P)) + 1);
+      Files.Add(string(AnsiString(P)));
+      Inc(P, StrLen(P) + 1);
     end;
 
     case MenuItemID of
 
-      // ---- Mostra tag ----
       MENUITEM_SHOW_TAGS:
         begin
           if Files.Count = 0 then Exit;
-          if ReadTagsFromFile(Files[0], Tag) then
+          if ReadTagsFromFile(Files[0], TagData) then
           begin
             Msg :=
               'File:     ' + ExtractFileName(Files[0]) + LineEnding +
-              'Titolo:   ' + Tag.Title   + LineEnding +
-              'Artista:  ' + Tag.Artist  + LineEnding +
-              'Album:    ' + Tag.Album   + LineEnding +
-              'Anno:     ' + Tag.Year    + LineEnding +
-              'Traccia:  ' + Tag.Track   + LineEnding +
-              'Genere:   ' + Tag.Genre   + LineEnding +
-              'Commento: ' + Tag.Comment + LineEnding + LineEnding +
-              'ID3v1: ' + BoolToStr(Tag.HasID3v1, 'Sì', 'No') +
-              '   ID3v2: '+ BoolToStr(Tag.HasID3v2, 'Sì', 'No');
+              'Titolo:   ' + TagData.Title   + LineEnding +
+              'Artista:  ' + TagData.Artist  + LineEnding +
+              'Album:    ' + TagData.Album   + LineEnding +
+              'Anno:     ' + TagData.Year    + LineEnding +
+              'Traccia:  ' + TagData.Track   + LineEnding +
+              'Genere:   ' + TagData.Genre   + LineEnding +
+              'Commento: ' + TagData.Comment + LineEnding + LineEnding +
+              'ID3v1: ' + BoolToStr(TagData.HasID3v1, 'Si', 'No') +
+              '   ID3v2: ' + BoolToStr(TagData.HasID3v2, 'Si', 'No');
             MessageDlg(Msg, mtInformation, [mbOK], 0);
           end
           else
@@ -493,10 +473,8 @@ begin
                        mtError, [mbOK], 0);
         end;
 
-      // ---- Rinomina dai tag ----
       MENUITEM_RENAME:
         begin
-          // Filtra solo MP3
           for I := Files.Count - 1 downto 0 do
             if LowerCase(ExtractFileExt(Files[I])) <> '.mp3' then
               Files.Delete(I);
@@ -514,24 +492,23 @@ begin
           end;
         end;
 
-      // ---- Editor tag singolo ----
       MENUITEM_EDIT_TAG:
         begin
           if Files.Count = 0 then Exit;
           if LowerCase(ExtractFileExt(Files[0])) <> '.mp3' then
           begin
-            MessageDlg('Il file selezionato non è un MP3.', mtWarning, [mbOK], 0);
+            MessageDlg('Il file selezionato non e'' un MP3.', mtWarning, [mbOK], 0);
             Exit;
           end;
-          ReadTagsFromFile(Files[0], Tag);
+          ReadTagsFromFile(Files[0], TagData);
           EdForm := TTagEditorForm.Create(nil);
           try
             EdForm.Caption := 'Editor Tag: ' + ExtractFileName(Files[0]);
-            EdForm.LoadTag(Tag);
+            EdForm.LoadTagData(TagData);
             if EdForm.ShowModal = mrOK then
             begin
-              EdForm.SaveTag(Tag);
-              if WriteTagsToFile(Files[0], Tag) then
+              EdForm.SaveTagData(TagData);
+              if WriteTagsToFile(Files[0], TagData) then
                 MessageDlg('Tag salvato!', mtInformation, [mbOK], 0)
               else
                 MessageDlg('Errore nel salvataggio.', mtError, [mbOK], 0);
@@ -541,7 +518,6 @@ begin
           end;
         end;
 
-      // ---- Batch tag editor ----
       MENUITEM_BATCH_EDIT:
         begin
           for I := Files.Count - 1 downto 0 do
@@ -561,7 +537,6 @@ begin
           end;
         end;
 
-      // ---- Pulizia tag ----
       MENUITEM_CLEAN_TAGS:
         begin
           for I := Files.Count - 1 downto 0 do
@@ -573,15 +548,15 @@ begin
           begin
             for I := 0 to Files.Count - 1 do
             begin
-              ReadTagsFromFile(Files[I], Tag);
-              Tag.Title   := Trim(Tag.Title);
-              Tag.Artist  := Trim(Tag.Artist);
-              Tag.Album   := Trim(Tag.Album);
-              Tag.Year    := Trim(Tag.Year);
-              Tag.Track   := Trim(Tag.Track);
-              Tag.Genre   := Trim(Tag.Genre);
-              Tag.Comment := Trim(Tag.Comment);
-              WriteTagsToFile(Files[I], Tag);
+              ReadTagsFromFile(Files[I], TagData);
+              TagData.Title   := Trim(TagData.Title);
+              TagData.Artist  := Trim(TagData.Artist);
+              TagData.Album   := Trim(TagData.Album);
+              TagData.Year    := Trim(TagData.Year);
+              TagData.Track   := Trim(TagData.Track);
+              TagData.Genre   := Trim(TagData.Genre);
+              TagData.Comment := Trim(TagData.Comment);
+              WriteTagsToFile(Files[I], TagData);
             end;
             MessageDlg('Pulizia completata!', mtInformation, [mbOK], 0);
           end;
@@ -596,7 +571,6 @@ begin
   end;
 end;
 
-// ---- Esportazione simboli DSX ----
 exports
   DsxGetMenuItems,
   DsxExecuteFile;
