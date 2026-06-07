@@ -126,21 +126,93 @@ Go to **Configuration → Options → Toolbar → Insert new button** and add:
 > currently selected files. If no files are selected, the tools open a
 > file selection dialog automatically.
 
-### Step 2 — Add tag columns
+### Step 2 — Set up tag columns with the audioinfo plugin
 
-1. Go to **Configuration → Options → Files views → Columns → Custom columns**
-2. Click **New** and name the column set (e.g. "Music")
-3. Click **Add column**, then click `+` in the field selector
-4. Choose **Plugin → audioinfo** and select the desired fields:
-   - **Artist** — `[Plugin(audioinfo).Artist()]`
-   - **Title** — `[Plugin(audioinfo).Title()]`
-   - **Album** — `[Plugin(audioinfo).Album()]`
-   - **Track** — `[Plugin(audioinfo).Track()]`
-   - **Year** — `[Plugin(audioinfo).Date()]`
-   - **Genre** — `[Plugin(audioinfo).Genre()]`
-   - **Duration** — `[Plugin(audioinfo).Duration (H:M:S)()]`
-5. Save the column set and activate it by right-clicking the column header
-   in the file panel → select your new column set
+The **audioinfo** plugin is a WDX (content plugin) bundled with every DoubleCMD
+installation. It reads audio metadata directly from files and exposes it as
+virtual columns that can be sorted, searched, and filtered just like any other
+file attribute.
+
+#### 2a — Create a column set
+
+1. Go to **Configuration → Options → Files views → Columns**
+2. Click **New** and name the column set (e.g. `Music`)
+3. Add the columns you want one by one by clicking **Add column**, then
+   choosing the field as described below
+
+#### 2b — Add a plugin column
+
+For each tag field you want to display:
+
+1. In the column definition dialog, click the **`...`** button next to the
+   *Content plugin* field (on some versions: click **`+`** in the field
+   selector, then navigate to **Plugin → audioinfo**)
+2. A list of available plugin fields appears — select the one you want
+3. Set a **Title** (the column header text) and an optional **Width**
+4. Click **OK**
+
+#### 2c — Available audioinfo fields
+
+| Column title    | Plugin field string                          | Typical width | Notes                          |
+|-----------------|----------------------------------------------|:-------------:|--------------------------------|
+| Artist          | `[Plugin(audioinfo).Artist()]`               | 140 px        |                                |
+| Title           | `[Plugin(audioinfo).Title()]`                | 180 px        |                                |
+| Album           | `[Plugin(audioinfo).Album()]`                | 140 px        |                                |
+| Track           | `[Plugin(audioinfo).Track()]`                |  50 px        | Plain number, e.g. `3`         |
+| Year            | `[Plugin(audioinfo).Date()]`                 |  50 px        | Field is named *Date* in the plugin |
+| Genre           | `[Plugin(audioinfo).Genre()]`                |  90 px        |                                |
+| Comment         | `[Plugin(audioinfo).Comment()]`              | 140 px        |                                |
+| Duration        | `[Plugin(audioinfo).Duration (H:M:S)()]`     |  70 px        | Formatted as `H:MM:SS`         |
+| Bitrate         | `[Plugin(audioinfo).Bitrate (Kbps)()]`       |  60 px        | e.g. `320`                     |
+| Sample rate     | `[Plugin(audioinfo).Sample rate (Hz)()]`     |  80 px        | e.g. `44100`                   |
+| Channels        | `[Plugin(audioinfo).Channels()]`             |  60 px        | e.g. `2`                       |
+
+> **Tip:** A practical Music column set typically uses: Artist, Title, Album,
+> Track, Year, Genre, Duration, and Bitrate. Add Comment, Sample rate, and
+> Channels only if you need them — they slow down directory scanning when
+> many files are present.
+
+#### 2d — Activate the column set
+
+Once you have saved the column set, activate it in the file panel:
+
+- **Right-click** the column header bar in the file panel
+- Select your column set name (e.g. `Music`) from the list
+
+Each panel (left/right) remembers its own active column set independently,
+so you can keep the Music set on one side and the default set on the other.
+
+To switch back to the standard file columns, right-click the header again
+and select the built-in `Default` set.
+
+#### 2e — Sorting
+
+Click any column header to sort by that field. Click again to reverse the
+order. Sorting by **Track** then renaming files with the Rename from Tags
+tool is a common workflow for quickly ordering an album.
+
+#### 2f — Troubleshooting
+
+**Columns show empty values:**
+- Make sure the files are MP3s with ID3 tags (files without tags will show
+  blank fields — use the Batch Tag Editor to add them)
+- Check that **audioinfo** appears in
+  **Configuration → Options → Plugins → Content plugins**; if it is missing,
+  re-install DoubleCMD
+- On Linux, if columns are empty for all files, the audioinfo plugin may need
+  the `libmpg123` or `libid3tag` shared library — install it via your package
+  manager (`sudo apt install libmpg123-dev` on Debian/Ubuntu)
+
+**The `Date` field shows a full ISO date instead of just the year:**
+- Some taggers (e.g. MusicBrainz Picard, foobar2000) write the full date
+  `2024-05-01` in the TDRC frame. The audioinfo plugin displays whatever is
+  stored — use the Batch Tag Editor to normalise the Year field to a 4-digit
+  value if needed
+
+**Column set is not remembered after restart:**
+- Save the column set from **Configuration → Options → Files views → Columns**
+  and make sure DoubleCMD configuration is saved before closing
+  (**Configuration → Save configuration**)
 
 ---
 
@@ -168,8 +240,12 @@ Go to **Configuration → Options → Toolbar → Insert new button** and add:
 ### Viewing tags as columns
 
 1. Navigate to a folder with MP3 files
-2. Right-click the column header → select your "Music" column set
+2. Right-click the column header → select your `Music` column set
 3. Columns show Artist, Album, Track, etc. — click a column header to sort
+4. To sort by track number and verify the album order before renaming,
+   click the **Track** column header
+5. To switch back to normal file columns, right-click the header →
+   select `Default`
 
 ---
 
