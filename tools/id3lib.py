@@ -264,8 +264,14 @@ def build_filename(pattern, tag, ext):
     track_val = tag.get('track','')
     result = result.replace('%track%',  track_val.zfill(2) if track_val else '')
     result = result.replace('%ext%',    ext                                     )
-    while '  ' in result:
-        result = result.replace('  ', ' ')
+    # Collapse multiple spaces and clean up orphaned separators
+    import re
+    # Remove separators that appear directly before the extension
+    result = re.sub(r'[\s_-]+' + re.escape(ext) + r'$', ext, result)
+    # Remove leading separators
+    result = re.sub(r'^[\s_-]+', '', result)
+    # Collapse runs of whitespace
+    result = re.sub(r'  +', ' ', result)
     result = result.strip()
     if not result.lower().endswith(ext.lower()):
         result += ext

@@ -13,14 +13,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import id3lib
 
 COLS = [
-    ('File',     None,      220, False),
-    ('Title',   'title',   160, True),
-    ('Artist',  'artist',  130, True),
-    ('Album',    'album',   130, True),
-    ('Year',     'year',     50, True),
-    ('Track',  'track',    55, True),
-    ('Genre',   'genre',    90, True),
-    ('Comment', 'comment', 120, True),
+    ('File',    None,       220, False),
+    ('Title',   'title',    160, True),
+    ('Artist',  'artist',   130, True),
+    ('Album',   'album',    130, True),
+    ('Year',    'year',      50, True),
+    ('Track',   'track',     55, True),
+    ('Genre',   'genre',     90, True),
+    ('Comment', 'comment',  120, True),
 ]
 
 class BatchEditor(tk.Tk):
@@ -90,9 +90,19 @@ class BatchEditor(tk.Tk):
         paths = filedialog.askopenfilenames(
             title='Select MP3 files',
             filetypes=[('MP3 files', '*.mp3'), ('All files', '*.*')])
-        if paths:
-            self.files.extend(paths)
-            self._load_files()
+        if not paths:
+            return
+        start_idx = len(self.files)
+        self.files.extend(paths)
+        # Append new rows without reloading existing ones (preserves unsaved changes)
+        for path in paths:
+            tag = id3lib.read_tags(path)
+            self.tags.append(tag)
+            row = [os.path.basename(path)]
+            for _, key, _, _ in COLS[1:]:
+                row.append(tag.get(key, ''))
+            self.tree.insert('', 'end', values=row)
+        self.status.config(text=f'{len(self.files)} files loaded. Double-click to edit.')
 
     def _on_double_click(self, event):
         region = self.tree.identify_region(event.x, event.y)
