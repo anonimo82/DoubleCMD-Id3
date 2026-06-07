@@ -38,12 +38,12 @@ copy /y "%~dp0tools\mp3tag_batch.py"    "%INSTALL_DIR%\mp3tag_batch.py"    >nul
 copy /y "%~dp0tools\mp3tag_rename.py"   "%INSTALL_DIR%\mp3tag_rename.py"   >nul
 
 REM ---- Create wrapper .bat files with fixed paths ----
-REM FIX #8: use %%RANDOM%% and %%TIME:~-5,2%% to generate a unique temp filename
-REM per instance, preventing collisions when two windows are open at once.
+REM FIX #8: use two %%RANDOM%% values concatenated (~1 billion combinations)
+REM to make temp filename collisions between concurrent instances negligible.
 
 echo @echo off > "%INSTALL_DIR%\run_batch.bat"
 echo setlocal >> "%INSTALL_DIR%\run_batch.bat"
-echo set TMPFILE=%%TEMP%%\mp3tag_batch_%%RANDOM%%_%%TIME:~-5,2%%.txt >> "%INSTALL_DIR%\run_batch.bat"
+echo set TMPFILE=%%TEMP%%\mp3tag_batch_%%RANDOM%%_%%RANDOM%%.txt >> "%INSTALL_DIR%\run_batch.bat"
 echo type nul ^> "%%TMPFILE%%" >> "%INSTALL_DIR%\run_batch.bat"
 echo for %%%%F in (%%*) do echo %%%%~F ^>^> "%%TMPFILE%%" >> "%INSTALL_DIR%\run_batch.bat"
 echo pythonw "%INSTALL_DIR%\mp3tag_batch.py" --filelist "%%TMPFILE%%" >> "%INSTALL_DIR%\run_batch.bat"
@@ -51,7 +51,7 @@ echo del "%%TMPFILE%%" 2^>nul >> "%INSTALL_DIR%\run_batch.bat"
 
 echo @echo off > "%INSTALL_DIR%\run_rename.bat"
 echo setlocal >> "%INSTALL_DIR%\run_rename.bat"
-echo set TMPFILE=%%TEMP%%\mp3tag_rename_%%RANDOM%%_%%TIME:~-5,2%%.txt >> "%INSTALL_DIR%\run_rename.bat"
+echo set TMPFILE=%%TEMP%%\mp3tag_rename_%%RANDOM%%_%%RANDOM%%.txt >> "%INSTALL_DIR%\run_rename.bat"
 echo type nul ^> "%%TMPFILE%%" >> "%INSTALL_DIR%\run_rename.bat"
 echo for %%%%F in (%%*) do echo %%%%~F ^>^> "%%TMPFILE%%" >> "%INSTALL_DIR%\run_rename.bat"
 echo pythonw "%INSTALL_DIR%\mp3tag_rename.py" --filelist "%%TMPFILE%%" >> "%INSTALL_DIR%\run_rename.bat"

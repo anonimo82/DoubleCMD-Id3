@@ -3,13 +3,17 @@ id3lib.py - ID3v1 and ID3v2 tag read/write library for Python
 Supports reading ID3v1+v2, writing ID3v2.3 and ID3v1
 
 Fixes applied:
-  - COMM frame: added missing null-terminator for content descriptor (was causing
-    corrupt comment data in all compliant readers)
-  - COMM read: dedicated _read_comm_frame() instead of _read_frame_text(), which
-    was returning lang+descriptor garbage as part of the comment value
-  - Atomic write: audio data is now written to a temp file then os.replace()'d,
-    so a crash mid-write never corrupts the original file
-  - sanitize_filename: now strips ASCII control characters (0x00-0x1f)
+  - COMM frame: corrected null-terminator for content descriptor; the previous
+    fix added one \x00 too many, prepending a null byte to every comment text
+  - COMM read: dedicated _read_comm_frame() instead of _read_frame_text()
+  - COMM read: enc==2 (UTF-16BE) now decoded with 'utf-16-be' instead of
+    'utf-16', which requires a BOM and would garble BOM-less UTF-16BE data
+  - _read_frame_text: UTF-16 rstrip now strips only null bytes before decoding,
+    not the byte-set {0x00, 0xff, 0xfe} which could truncate valid data
+  - build_filename: guarded result[:-len(ext)] against len(ext)==0, which
+    evaluated to result[:0] == '' and destroyed the entire filename
+  - Atomic write: audio data written to a temp file then os.replace()'d
+  - sanitize_filename: strips ASCII control characters (0x00-0x1f)
 """
 
 import re
@@ -112,7 +116,9 @@ def _read_frame_text(data, frame_id, version):
             if enc == 0:
                 return raw.rstrip(b'\x00').decode('latin-1', errors='replace').strip()
             elif enc == 1:
-                return raw.rstrip(b'\x00\xff\xfe').decode('utf-16', errors='replace').strip()
+                # Strip only null bytes; rstrip(b'\x00\xff\xfe') is a byte-set
+                # that would silently eat valid 0xff / 0xfe bytes from the tail.
+                return raw.rstrip(b'\x00').decode('utf-16', errors='replace').strip()
             elif enc == 3:
                 return raw.rstrip(b'\x00').decode('utf-8', errors='replace').strip()
         pos += sz
@@ -166,8 +172,12 @@ def _read_comm_frame(data, version):
             rest = rest.rstrip(b'\x00')
             if enc == 0:
                 return rest.decode('latin-1', errors='replace').strip()
-            elif enc in (1, 2):
+            elif enc == 1:
+                # UTF-16 with BOM
                 return rest.decode('utf-16', errors='replace').strip()
+            elif enc == 2:
+                # UTF-16BE without BOM — must NOT use 'utf-16' (which needs a BOM)
+                return rest.decode('utf-16-be', errors='replace').strip()
             elif enc == 3:
                 return rest.decode('utf-8', errors='replace').strip()
             return ''
@@ -222,14 +232,19 @@ def _make_comm_frame(text):
     """
     Create an ID3v2.3 COMM frame with UTF-8 encoding.
 
-    Layout: encoding(1) + lang(3) + descriptor(1+ null) + text
-    FIX #2: descriptor is a null-terminated empty string → single \x00 for UTF-8.
-    Previously the null was missing, causing compliant readers to merge the
-    descriptor and the comment text into one garbled string.
+    COMM payload layout (ID3v2.3 §4.10):
+        encoding  (1 byte)   — 0x03 = UTF-8
+        language  (3 bytes)  — e.g. b'eng' (not null-terminated)
+        content descriptor   — null-terminated string; empty = single b'\x00'
+        text                 — the actual comment bytes
+
+    The descriptor for an empty string is exactly one null byte (the terminator).
+    A previous version erroneously wrote TWO null bytes here, causing every
+    comment to be read back with a leading \x00 character.
     """
     encoded = text.encode('utf-8')
-    # enc=0x03 (UTF-8), lang=eng, empty descriptor null-terminated, then text
-    payload = b'\x03' + b'eng' + b'\x00' + b'\x00' + encoded
+    # enc=0x03 (UTF-8) | lang=eng | empty descriptor (just the null terminator) | text
+    payload = b'\x03' + b'eng' + b'\x00' + encoded
     size = struct.pack('>I', len(payload))
     return b'COMM' + size + b'\x00\x00' + payload
 
@@ -374,7 +389,9 @@ def build_filename(pattern, tag, ext):
     result = result.replace('%ext%',    ext                                     )
 
     # Strip the extension, clean the stem, then re-add it.
-    if result.lower().endswith(ext.lower()):
+    # Guard: when ext is '' (no extension), len(ext)==0 and result[:-0]
+    # evaluates to result[:0] == '', destroying the entire filename.
+    if ext and result.lower().endswith(ext.lower()):
         stem = result[:-len(ext)]
     else:
         stem = result

@@ -9,6 +9,9 @@ Fixes applied:
     to get diverged on multiple successive edits + saves).
   - FIX #10: closing the window while there are unsaved changes now asks for
     confirmation, preventing accidental data loss.
+  - FIX #5: self.modified is only cleared for rows that were successfully
+    written; failed rows are kept so the user can retry with "Save all"
+    without re-editing every field manually.
 """
 
 import sys
@@ -201,10 +204,12 @@ class BatchEditor(tk.Tk):
             self.tags[row_idx][key] = val
 
         modified_rows = {ri for ri, _ in self.modified}
+        failed_rows = set()
         for i, path in enumerate(self.files):
             if i in modified_rows:
                 if not id3lib.write_tags(path, self.tags[i]):
                     errors.append(os.path.basename(path))
+                    failed_rows.add(i)
 
         # FIX #6: resync self.tags from the tree so that successive edits
         # always start from the true saved state, not stale in-memory data.
@@ -214,9 +219,15 @@ class BatchEditor(tk.Tk):
                 if editable and key:
                     self.tags[i][key] = vals[col_idx]
 
-        self.modified.clear()
+        # FIX #5: only clear entries for rows that were saved successfully.
+        # Keeping failed rows in self.modified lets the user retry with
+        # "Save all" without having to re-edit every failed field manually.
+        for k in [k for k in self.modified if k[0] not in failed_rows]:
+            del self.modified[k]
+
         if errors:
-            messagebox.showerror('Mp3Tag', 'Errors saving:\n' + '\n'.join(errors))
+            messagebox.showerror('Mp3Tag',
+                f'Errors saving (will retry on next Save all):\n' + '\n'.join(errors))
         else:
             messagebox.showinfo('Mp3Tag', 'Saved successfully!')
 
