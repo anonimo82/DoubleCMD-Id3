@@ -113,19 +113,25 @@ class RenameDialog(tk.Tk):
 
     def _update_preview(self):
         self.tree.delete(*self.tree.get_children())
+        # FIX F: key the collision counter by os.path.normcase() so that
+        # 'Money.mp3' and 'money.mp3' are treated as the same name on
+        # case-insensitive filesystems (Windows, macOS HFS+), preventing
+        # a silent overwrite. normcase() is a no-op on Linux (case-sensitive
+        # FS), so this fix is safe on all platforms.
         seen = {}
         new_names = []
         for i in range(len(self.files)):
             nn = self._build_new_name(i)
             new_names.append(nn)
-            seen[nn] = seen.get(nn, 0) + 1
+            key = os.path.normcase(nn)
+            seen[key] = seen.get(key, 0) + 1
 
         changed = 0
         conflicts = 0
         for i, path in enumerate(self.files):
             old = os.path.basename(path)
             nn  = new_names[i]
-            if seen[nn] > 1:
+            if seen[os.path.normcase(nn)] > 1:
                 row_tag = 'conflict'; conflicts += 1
             elif old == nn:
                 row_tag = 'same'
@@ -143,9 +149,13 @@ class RenameDialog(tk.Tk):
         renamed = 0
         new_names = [self._build_new_name(i) for i in range(len(self.files))]
 
+        # FIX F: same normcase logic as _update_preview — keying by
+        # normcase ensures the duplicate check matches the FS behaviour
+        # on case-insensitive systems.
         seen = {}
         for nn in new_names:
-            seen[nn] = seen.get(nn, 0) + 1
+            key = os.path.normcase(nn)
+            seen[key] = seen.get(key, 0) + 1
         if any(v > 1 for v in seen.values()):
             if not messagebox.askyesno('Mp3Tag',
                 'There are duplicate names.\nProceed ignoring duplicates?'):
@@ -155,7 +165,7 @@ class RenameDialog(tk.Tk):
         for i, path in enumerate(self.files):
             old = os.path.basename(path)
             nn  = new_names[i]
-            if old == nn or seen[nn] > 1:
+            if old == nn or seen[os.path.normcase(nn)] > 1:
                 continue
             new_path = os.path.join(os.path.dirname(path), nn)
             # FIX C: use os.path.samefile() so that a case-only rename

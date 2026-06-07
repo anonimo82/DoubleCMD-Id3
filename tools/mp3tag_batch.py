@@ -255,17 +255,19 @@ class BatchEditor(tk.Tk):
         self._ff_tree.delete(*self._ff_tree.get_children())
         pattern = self._ff_pattern_var.get().strip()
 
+        # FIX G: validate the pattern first; if invalid, show the error and
+        # return immediately so the file-count summary never overwrites it.
         try:
             pattern_to_regex(pattern)
             pattern_ok = True
         except ValueError as e:
-            self._ff_info.config(text=f'Pattern error: {e}')
-            pattern_ok = False
+            self._ff_info.config(text=f'Pattern error: {e}', foreground='red')
+            return
 
         matched = 0
         for path in self.files:
             stem, _ = os.path.splitext(os.path.basename(path))
-            parsed = parse_filename(pattern, stem) if pattern_ok else None
+            parsed = parse_filename(pattern, stem)
 
             if parsed:
                 row = (os.path.basename(path),
@@ -277,14 +279,14 @@ class BatchEditor(tk.Tk):
                 matched += 1
             else:
                 self._ff_tree.insert('', 'end',
-                                     values=(os.path.basename(path),)+(''*7,)*7,
+                                     values=(os.path.basename(path),)+('',)*7,
                                      tags=('nomatch',))
 
         no_match = len(self.files) - matched
         info = f'{len(self.files)} files  •  {matched} matched'
         if no_match:
             info += f'  •  {no_match} unmatched (gray)'
-        self._ff_info.config(text=info)
+        self._ff_info.config(text=info, foreground='gray')
 
     def _ff_apply(self):
         pattern = self._ff_pattern_var.get().strip()
@@ -507,8 +509,6 @@ def main():
         files = [f for f in args
                  if f.lower().endswith('.mp3') and os.path.isfile(f)]
 
-    # BatchEditor subclasses tk.Tk, so it IS the one-and-only Tk instance.
-    # If files is empty it opens the file dialog itself before building the UI.
     app = BatchEditor(files if files else None)
     app.mainloop()
 
