@@ -1,5 +1,5 @@
 """
-configure_doublecmd.py - Auto-configure DoubleCMD toolbar for Android/proot
+configure_doublecmd.py - Auto-configure DoubleCMD toolbar for all platforms.
 
 Adds Batch Tag Editor and Rename from Tags buttons to the DoubleCMD toolbar
 by editing doublecmd.xml directly.
@@ -8,25 +8,25 @@ Usage: python3 configure_doublecmd.py <install_dir>
 
 IMPORTANT: Run with DoubleCMD closed. DoubleCMD overwrites its config on exit.
 
-On Android/proot, DoubleCMD passes selected files via %p (individual full
-paths as separate arguments), unlike Linux desktop where %Lm works.
-
-DoubleCMD toolbar XML structure (verified on v1.1.32 GTK2 aarch64):
+DoubleCMD toolbar XML structure (verified on v1.1.32 GTK2 aarch64 and Windows):
   <Toolbars>
     <MainToolbar>
       <Row>
         <Program>
           <ID>{GUID}</ID>
-          <Icon>/path/to/script.sh</Icon>
+          <Icon>/path/to/script</Icon>
           <Hint>Tooltip text</Hint>
-          <Command>/path/to/script.sh</Command>
+          <Command>/path/to/script</Command>
           <Params>%p</Params>
           <StartPath>/path/to/dir/</StartPath>
         </Program>
-        ...
       </Row>
     </MainToolbar>
   </Toolbars>
+
+NOTE: %p passes selected file paths as individual arguments.
+On Windows, .bat files must be launched directly (not via cmd /c)
+for %p to be passed correctly by DoubleCMD.
 """
 
 import sys
@@ -38,10 +38,19 @@ import uuid
 
 
 def find_doublecmd_config():
-    """Search common locations for doublecmd.xml."""
-    candidates = [
-        os.path.expanduser('~/.config/doublecmd/doublecmd.xml'),
-        os.path.expanduser('~/.doublecmd/doublecmd.xml'),
+    """Search common locations for doublecmd.xml on all platforms."""
+    candidates = []
+
+    # Windows: %APPDATA%\doublecmd\doublecmd.xml
+    appdata = os.environ.get('APPDATA', '')
+    if appdata:
+        candidates.append(os.path.join(appdata, 'doublecmd', 'doublecmd.xml'))
+
+    # Linux / macOS / Android proot
+    home = os.path.expanduser('~')
+    candidates += [
+        os.path.join(home, '.config', 'doublecmd', 'doublecmd.xml'),
+        os.path.join(home, '.doublecmd', 'doublecmd.xml'),
         '/root/.config/doublecmd/doublecmd.xml',
         '/root/.doublecmd/doublecmd.xml',
     ]
@@ -70,16 +79,16 @@ def make_program_elem(cmd, params, hint):
     """Create a <Program> element matching DoubleCMD's toolbar format."""
     prog = ET.Element('Program')
     ET.SubElement(prog, 'ID').text        = make_guid()
-    ET.SubElement(prog, 'Icon').text      = cmd          # DC uses cmd path as icon fallback
+    ET.SubElement(prog, 'Icon').text      = cmd
     ET.SubElement(prog, 'Hint').text      = hint
     ET.SubElement(prog, 'Command').text   = cmd
     ET.SubElement(prog, 'Params').text    = params
-    ET.SubElement(prog, 'StartPath').text = os.path.dirname(cmd) + '/'
+    ET.SubElement(prog, 'StartPath').text = os.path.dirname(cmd) + os.sep
     return prog
 
 
 def remove_stale_toolbar(root):
-    """Remove the incorrect <ToolBar> element we may have added previously."""
+    """Remove the incorrect <ToolBar> element added by previous installs."""
     for elem in list(root):
         if elem.tag == 'ToolBar':
             root.remove(elem)
@@ -103,14 +112,32 @@ def indent_xml(elem, level=0):
             elem.tail = pad
 
 
+def get_wrapper_cmd(install_dir):
+    """Return (batch_cmd, batch_params, rename_cmd, rename_params) for this platform.
+
+    Windows: launch .bat directly (NOT via cmd /c) so that DoubleCMD
+    passes %p arguments correctly. cmd /c swallows the arguments.
+    """
+    if os.name == 'nt':
+        batch_cmd     = os.path.join(install_dir, 'run_batch.bat')
+        rename_cmd    = os.path.join(install_dir, 'run_rename.bat')
+        batch_params  = '%p'
+        rename_params = '%p'
+    else:
+        batch_cmd     = os.path.join(install_dir, 'run_batch.sh')
+        rename_cmd    = os.path.join(install_dir, 'run_rename.sh')
+        batch_params  = '%p'
+        rename_params = '%p'
+    return (batch_cmd, batch_params, rename_cmd, rename_params)
+
+
 def main():
     if len(sys.argv) < 2:
         print('Usage: configure_doublecmd.py <install_dir>')
         sys.exit(1)
 
-    install_dir = sys.argv[1].rstrip('/')
-    batch_cmd  = os.path.join(install_dir, 'run_batch.sh')
-    rename_cmd = os.path.join(install_dir, 'run_rename.sh')
+    install_dir = sys.argv[1].rstrip('/').rstrip('\\')
+    batch_cmd, batch_params, rename_cmd, rename_params = get_wrapper_cmd(install_dir)
 
     config_path = find_doublecmd_config()
 
@@ -118,7 +145,7 @@ def main():
         print('WARNING: doublecmd.xml not found.')
         print('Launch DoubleCMD once to generate it, then re-run this script,')
         print('or add the toolbar buttons manually:')
-        _print_manual_instructions(batch_cmd, rename_cmd)
+        _print_manual_instructions(install_dir)
         return
 
     print(f'Found config: {config_path}')
@@ -133,14 +160,13 @@ def main():
         root = tree.getroot()
     except ET.ParseError as e:
         print(f'ERROR: Cannot parse doublecmd.xml: {e}')
-        _print_manual_instructions(batch_cmd, rename_cmd)
+        _print_manual_instructions(install_dir)
         return
 
-    # Remove any stale <ToolBar> we added in a previous (incorrect) install
+    # Remove any stale <ToolBar> from a previous incorrect install
     remove_stale_toolbar(root)
 
-    # Navigate to <Toolbars><MainToolbar><Row>
-    # Create the path if any element is missing
+    # Navigate to <Toolbars><MainToolbar><Row>, creating elements if missing
     toolbars = root.find('Toolbars')
     if toolbars is None:
         toolbars = ET.SubElement(root, 'Toolbars')
@@ -159,14 +185,14 @@ def main():
     added = 0
 
     if not program_exists(row, 'Batch Tag Editor'):
-        row.append(make_program_elem(batch_cmd, '%p', 'Batch Tag Editor'))
+        row.append(make_program_elem(batch_cmd, batch_params, 'Batch Tag Editor'))
         print('Added button: Batch Tag Editor')
         added += 1
     else:
         print('Button already present: Batch Tag Editor (skipped)')
 
     if not program_exists(row, 'Rename from Tags'):
-        row.append(make_program_elem(rename_cmd, '%p', 'Rename from Tags'))
+        row.append(make_program_elem(rename_cmd, rename_params, 'Rename from Tags'))
         print('Added button: Rename from Tags')
         added += 1
     else:
@@ -183,17 +209,33 @@ def main():
         print('No changes needed.')
 
 
-def _print_manual_instructions(batch_cmd, rename_cmd):
-    print()
-    print('  Configuration > Options > Toolbar > Insert new button')
-    print()
-    print('  BATCH TAG EDITOR:')
-    print(f'    Command:    {batch_cmd}')
-    print( '    Parameters: %p')
-    print()
-    print('  RENAME FROM TAGS:')
-    print(f'    Command:    {rename_cmd}')
-    print( '    Parameters: %p')
+def _print_manual_instructions(install_dir):
+    if os.name == 'nt':
+        batch  = os.path.join(install_dir, 'run_batch.bat')
+        rename = os.path.join(install_dir, 'run_rename.bat')
+        print()
+        print('  Configuration > Options > Toolbar > Insert new button')
+        print()
+        print('  BATCH TAG EDITOR:')
+        print(f'    Command:    {batch}')
+        print( '    Parameters: %p')
+        print()
+        print('  RENAME FROM TAGS:')
+        print(f'    Command:    {rename}')
+        print( '    Parameters: %p')
+    else:
+        batch  = os.path.join(install_dir, 'run_batch.sh')
+        rename = os.path.join(install_dir, 'run_rename.sh')
+        print()
+        print('  Configuration > Options > Toolbar > Insert new button')
+        print()
+        print('  BATCH TAG EDITOR:')
+        print(f'    Command:    {batch}')
+        print( '    Parameters: %p')
+        print()
+        print('  RENAME FROM TAGS:')
+        print(f'    Command:    {rename}')
+        print( '    Parameters: %p')
     print()
 
 

@@ -45,6 +45,19 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 
+REM ---- Auto-configure DoubleCMD toolbar ----
+echo.
+echo Configuring DoubleCMD toolbar...
+echo IMPORTANT: Make sure DoubleCMD is closed before continuing.
+pause
+python "%~dp0android\configure_doublecmd.py" "%INSTALL_DIR%"
+
+if errorlevel 1 (
+    echo.
+    echo WARNING: Could not auto-configure DoubleCMD.
+    echo Add toolbar buttons manually as described below.
+)
+
 echo.
 echo  =============================================
 echo   Installation complete!
@@ -52,23 +65,21 @@ echo  =============================================
 echo.
 echo  Folder: %INSTALL_DIR%
 echo.
-echo  Configure DoubleCMD:
+echo  If toolbar buttons were not added automatically:
 echo  1. Configuration ^> Options ^> Toolbar
 echo  2. Add button "External command":
 echo.
 echo     BATCH TAG EDITOR:
-echo       Command:    cmd
-echo       Parameters: /c "%INSTALL_DIR%\run_batch.bat" %%p
+echo       Command:    %INSTALL_DIR%\run_batch.bat
+echo       Parameters: %%p
 echo.
 echo     RENAME FROM TAGS:
-echo       Command:    cmd
-echo       Parameters: /c "%INSTALL_DIR%\run_rename.bat" %%p
+echo       Command:    %INSTALL_DIR%\run_rename.bat
+echo       Parameters: %%p
 echo.
-echo  NOTE: Use %%p (not %%Lm) — on this version of DoubleCMD,
-echo  %%p passes selected file paths directly as arguments.
+echo  NOTE: Use the .bat file as Command directly (not cmd /c).
 echo.
-echo  3. For tag columns (Artist, Album, etc.) use the
-echo     audioinfo plugin already included in DoubleCMD:
+echo  3. For tag columns use the audioinfo plugin:
 echo     Configuration ^> Options ^> Files views ^> Columns
 echo     Add columns from: Plugins ^> audioinfo
 echo.
