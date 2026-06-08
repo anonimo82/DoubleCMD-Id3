@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 #  Mp3Tag Tools for DoubleCMD - Linux/macOS Installer
-#  Requirements: Python 3, DoubleCMD
+#  Requirements: Python 3 with tkinter, DoubleCMD
 # ============================================================
 
 set -e
@@ -19,6 +19,19 @@ if ! command -v python3 &>/dev/null; then
     exit 1
 fi
 echo "Python: $(python3 --version)"
+
+# ---- Check tkinter ----
+if ! python3 -c "import tkinter" &>/dev/null; then
+    echo ""
+    echo "ERROR: Python tkinter module not found."
+    echo "Install it with one of:"
+    echo "  Debian/Ubuntu:       sudo apt install python3-tk"
+    echo "  Fedora:              sudo dnf install python3-tkinter"
+    echo "  Arch:                sudo pacman -S tk"
+    echo "  proot-distro Ubuntu: sudo apt install python3-tk"
+    exit 1
+fi
+echo "tkinter: OK"
 
 # ---- Choose install folder ----
 DEFAULT_DIR="$HOME/Mp3TagTools"

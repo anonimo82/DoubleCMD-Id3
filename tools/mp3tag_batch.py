@@ -255,8 +255,6 @@ class BatchEditor(tk.Tk):
         self._ff_tree.delete(*self._ff_tree.get_children())
         pattern = self._ff_pattern_var.get().strip()
 
-        # FIX G: validate the pattern first; if invalid, show the error and
-        # return immediately so the file-count summary never overwrites it.
         try:
             pattern_to_regex(pattern)
         except ValueError as e:
@@ -399,7 +397,11 @@ class BatchEditor(tk.Tk):
         popup = tk.Toplevel(self)
         popup.title(f'Edit {COLS[col_idx][0]}')
         popup.resizable(False, False)
-        popup.grab_set()
+        # FIX: grab_set() causes input to freeze on proot/Termux:X11;
+        # use lift() + focus_force() instead for reliable focus handling.
+        popup.lift()
+        popup.attributes('-topmost', True)
+        popup.focus_force()
 
         ttk.Label(popup, text=f'Field: {COLS[col_idx][0]}',
                   font=('Segoe UI', 9, 'bold')).pack(

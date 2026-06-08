@@ -69,6 +69,7 @@ Bitrate, Duration, Sample rate, and more.
 |-----------|---------|-------|
 | DoubleCMD | 0.9+    | Windows, Linux, macOS |
 | Python    | 3.6+    | Must be in system PATH |
+| tkinter   | —       | Bundled with Python on Windows/macOS; separate package on Linux (see below) |
 | audioinfo | —       | Already bundled with DoubleCMD |
 
 ---
@@ -93,8 +94,49 @@ chmod +x install_linux_macos.sh
 ./install_linux_macos.sh
 ```
 
-The installer does the same as above, creating `run_batch.sh` and
-`run_rename.sh` wrapper scripts in the chosen folder.
+The installer checks for Python 3 and tkinter, then copies the scripts and
+creates `run_batch.sh` and `run_rename.sh` wrapper scripts in the chosen folder.
+
+If tkinter is missing, the installer will tell you the exact command to install
+it for your distribution.
+
+### Android (Termux + proot-distro Ubuntu)
+
+The tools run fully inside a proot-distro Ubuntu environment, which provides
+a complete Linux userland including a working X display via Termux:X11.
+
+**Step 1 — Install Termux:X11** from the Termux add-ons repository and start
+the X server before proceeding.
+
+**Step 2 — Enter Ubuntu:**
+
+```bash
+proot-distro login ubuntu
+```
+
+**Step 3 — Install dependencies:**
+
+```bash
+sudo apt update && sudo apt install -y python3 python3-tk doublecmd-gtk
+```
+
+**Step 4 — Run the installer inside proot:**
+
+```bash
+cd /path/to/mp3tag_dist
+chmod +x install_linux_macos.sh
+./install_linux_macos.sh
+```
+
+**Step 5 — Launch DoubleCMD:**
+
+```bash
+export DISPLAY=:0
+doublecmd
+```
+
+Then configure the toolbar buttons as described in the DoubleCMD Configuration
+section below, using the paths printed by the installer.
 
 ---
 
@@ -213,6 +255,11 @@ tool is a common workflow for quickly ordering an album.
   and make sure DoubleCMD configuration is saved before closing
   (**Configuration → Save configuration**)
 
+**Edit popup appears but is empty / not interactable (proot / Termux:X11):**
+- This is a known issue with `grab_set()` on some X11 environments. This
+  release already includes the fix (`lift()` + `focus_force()` instead of
+  `grab_set()`); if you see this with an older version, update `mp3tag_batch.py`.
+
 ---
 
 ## Typical Workflow
@@ -286,3 +333,6 @@ mp3tag_dist/           (this package)
   `os`, `tkinter`)
 - **Atomic writes**: tag data is written to a temp file then swapped in with
   `os.replace()`, so a crash mid-write never corrupts the original file
+- **proot/Termux:X11 compatibility**: the edit popup uses `lift()` +
+  `focus_force()` instead of `grab_set()` for reliable focus handling on
+  non-standard X11 environments
