@@ -37,9 +37,7 @@ copy /y "%~dp0tools\id3lib.py"          "%INSTALL_DIR%\id3lib.py"          >nul
 copy /y "%~dp0tools\mp3tag_batch.py"    "%INSTALL_DIR%\mp3tag_batch.py"    >nul
 copy /y "%~dp0tools\mp3tag_rename.py"   "%INSTALL_DIR%\mp3tag_rename.py"   >nul
 
-REM ---- Generate wrapper .bat files via helper script ----
-REM  make_wrappers.py lives next to this installer and contains no CMD
-REM  special characters, so the python call is a clean single-liner.
+REM ---- Generate wrapper .bat files ----
 python "%~dp0make_wrappers.py" "%INSTALL_DIR%"
 
 if errorlevel 1 (
@@ -60,11 +58,14 @@ echo  2. Add button "External command":
 echo.
 echo     BATCH TAG EDITOR:
 echo       Command:    cmd
-echo       Parameters: /c "%INSTALL_DIR%\run_batch.bat" %%Lm
+echo       Parameters: /c "%INSTALL_DIR%\run_batch.bat" %%p
 echo.
 echo     RENAME FROM TAGS:
 echo       Command:    cmd
-echo       Parameters: /c "%INSTALL_DIR%\run_rename.bat" %%Lm
+echo       Parameters: /c "%INSTALL_DIR%\run_rename.bat" %%p
+echo.
+echo  NOTE: Use %%p (not %%Lm) — on this version of DoubleCMD,
+echo  %%p passes selected file paths directly as arguments.
 echo.
 echo  3. For tag columns (Artist, Album, etc.) use the
 echo     audioinfo plugin already included in DoubleCMD:

@@ -56,7 +56,7 @@ cp "$SCRIPT_DIR/tools/mp3tag_rename.py" "$INSTALL_DIR/mp3tag_rename.py"
 chmod +x "$INSTALL_DIR/mp3tag_batch.py"
 chmod +x "$INSTALL_DIR/mp3tag_rename.py"
 
-# ---- Create wrapper shell scripts with fixed paths ----
+# ---- Create wrapper shell scripts ----
 cat > "$INSTALL_DIR/run_batch.sh" << WRAPPER
 #!/usr/bin/env bash
 TMPFILE="\$(mktemp /tmp/mp3tag_XXXXXX.txt)"

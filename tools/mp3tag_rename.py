@@ -2,14 +2,6 @@
 mp3tag_rename.py - Rename MP3 files from ID3 tags with live preview
 Usage: python mp3tag_rename.py [file1.mp3 file2.mp3 ...]
        If launched without arguments, opens a file selection dialog.
-
-FIX C: _do_rename now uses os.path.samefile() to compare new_path and path
-       instead of a plain string inequality check. This allows case-only
-       renames (e.g. 'money.mp3' -> 'Money.mp3') to work correctly on
-       case-insensitive filesystems (Windows, macOS HFS+), where
-       os.path.exists(new_path) returns True for the same file and the old
-       string check would incorrectly abort the operation with "file already
-       exists".
 """
 
 import sys
@@ -24,11 +16,6 @@ DEFAULT_PATTERN = '%track% - %artist% - %title%'
 
 
 def _is_same_file(p1, p2):
-    """
-    Return True if p1 and p2 refer to the same filesystem entry.
-    Falls back to False if either path does not exist (os.path.samefile
-    raises OSError when a path is missing).
-    """
     try:
         return os.path.samefile(p1, p2)
     except OSError:
@@ -38,12 +25,10 @@ def _is_same_file(p1, p2):
 class RenameDialog(tk.Tk):
     def __init__(self, files=None):
         super().__init__()
-        self.withdraw()                     # hide until UI is ready
-
+        self.withdraw()
         self.title('Rename from Tags — Mp3Tag for DoubleCMD')
         self.resizable(True, False)
         self.minsize(700, 380)
-
         if not files:
             paths = filedialog.askopenfilenames(
                 title='Select MP3 files to rename',
@@ -53,13 +38,12 @@ class RenameDialog(tk.Tk):
                 self.destroy()
                 return
             files = list(paths)
-
         self.files = list(files)
         self.tags  = [id3lib.read_tags(f) for f in self.files]
         self._build_ui()
         self._update_preview()
         self._center()
-        self.deiconify()                    # show now that everything is ready
+        self.deiconify()
 
     def _center(self):
         self.update_idletasks()
@@ -74,14 +58,11 @@ class RenameDialog(tk.Tk):
         self.pattern_var = tk.StringVar(value=DEFAULT_PATTERN)
         self.pattern_var.trace_add('write', lambda *_: self._update_preview())
         ttk.Entry(pf, textvariable=self.pattern_var, width=55).pack(side='left', padx=6)
-
         ttk.Label(self,
                   text='Variables: %title%  %artist%  %album%  %year%  %track%  %genre%  %ext%',
                   foreground='gray', font=('Segoe UI', 8)).pack(anchor='w', padx=10)
-
         frame = ttk.Frame(self, padding=(10,4))
         frame.pack(fill='both', expand=True)
-
         self.tree = ttk.Treeview(frame, columns=('old','arrow','new'),
                                   show='headings', selectmode='none')
         self.tree.heading('old',   text='Current name')
@@ -90,16 +71,13 @@ class RenameDialog(tk.Tk):
         self.tree.column('old',   width=280, stretch=True)
         self.tree.column('arrow', width=30,  stretch=False)
         self.tree.column('new',   width=340, stretch=True)
-
         vsb = ttk.Scrollbar(frame, orient='vertical', command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
         self.tree.pack(side='left', fill='both', expand=True)
         vsb.pack(side='right', fill='y')
-
         self.tree.tag_configure('same',     foreground='gray')
         self.tree.tag_configure('changed',  foreground='#0070c0')
         self.tree.tag_configure('conflict', foreground='red')
-
         bf = ttk.Frame(self, padding=(10,6))
         bf.pack(fill='x')
         self.lbl_info = ttk.Label(bf, text='', foreground='gray', font=('Segoe UI', 8))
@@ -113,11 +91,6 @@ class RenameDialog(tk.Tk):
 
     def _update_preview(self):
         self.tree.delete(*self.tree.get_children())
-        # FIX F: key the collision counter by os.path.normcase() so that
-        # 'Money.mp3' and 'money.mp3' are treated as the same name on
-        # case-insensitive filesystems (Windows, macOS HFS+), preventing
-        # a silent overwrite. normcase() is a no-op on Linux (case-sensitive
-        # FS), so this fix is safe on all platforms.
         seen = {}
         new_names = []
         for i in range(len(self.files)):
@@ -125,7 +98,6 @@ class RenameDialog(tk.Tk):
             new_names.append(nn)
             key = os.path.normcase(nn)
             seen[key] = seen.get(key, 0) + 1
-
         changed = 0
         conflicts = 0
         for i, path in enumerate(self.files):
@@ -138,7 +110,6 @@ class RenameDialog(tk.Tk):
             else:
                 row_tag = 'changed'; changed += 1
             self.tree.insert('', 'end', values=(old, '->', nn), tags=(row_tag,))
-
         info = f'{len(self.files)} files  •  {changed} to rename'
         if conflicts:
             info += f'  •  {conflicts} conflicts (red)'
@@ -148,10 +119,6 @@ class RenameDialog(tk.Tk):
         errors = []
         renamed = 0
         new_names = [self._build_new_name(i) for i in range(len(self.files))]
-
-        # FIX F: same normcase logic as _update_preview — keying by
-        # normcase ensures the duplicate check matches the FS behaviour
-        # on case-insensitive systems.
         seen = {}
         for nn in new_names:
             key = os.path.normcase(nn)
@@ -160,7 +127,6 @@ class RenameDialog(tk.Tk):
             if not messagebox.askyesno('Mp3Tag',
                 'There are duplicate names.\nProceed ignoring duplicates?'):
                 return
-
         renamed_indices = {}
         for i, path in enumerate(self.files):
             old = os.path.basename(path)
@@ -168,11 +134,6 @@ class RenameDialog(tk.Tk):
             if old == nn or seen[os.path.normcase(nn)] > 1:
                 continue
             new_path = os.path.join(os.path.dirname(path), nn)
-            # FIX C: use os.path.samefile() so that a case-only rename
-            # (e.g. 'money.mp3' -> 'Money.mp3') is not blocked on
-            # case-insensitive filesystems (Windows, macOS HFS+).
-            # _is_same_file() returns False when new_path does not yet
-            # exist, so the guard still prevents overwriting unrelated files.
             if os.path.exists(new_path) and not _is_same_file(new_path, path):
                 errors.append(f'{old} (file already exists)')
                 continue
@@ -182,10 +143,8 @@ class RenameDialog(tk.Tk):
                 renamed += 1
             except Exception as e:
                 errors.append(f'{old}: {e}')
-
         for i, new_path in renamed_indices.items():
             self.files[i] = new_path
-
         if errors:
             messagebox.showerror('Mp3Tag',
                 f'Renamed {renamed} files.\nErrors:\n' + '\n'.join(errors))
@@ -198,7 +157,6 @@ class RenameDialog(tk.Tk):
 def main():
     args = sys.argv[1:]
     files = []
-
     if len(args) >= 2 and args[0] == '--filelist':
         try:
             with open(args[1], 'r', encoding='utf-8', errors='ignore') as f:
@@ -210,7 +168,6 @@ def main():
             pass
     else:
         files = [f for f in args if f.lower().endswith('.mp3') and os.path.isfile(f)]
-
     app = RenameDialog(files if files else None)
     app.mainloop()
 

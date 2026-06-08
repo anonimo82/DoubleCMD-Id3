@@ -111,46 +111,13 @@ def read_id3v1(path):
 # ------------------------------------------------------------------ ID3v2 read
 
 def _rstrip_utf16(b):
-    """
-    Strip trailing null padding from UTF-16-LE data without corrupting the
-    last codepoint.
-
-    In UTF-16-LE every ASCII character is stored as <char_byte> <0x00>.
-    Python's bytes.rstrip(b'\x00') removes individual trailing zero bytes,
-    so the closing 0x00 of the last ASCII character (e.g. 't' = 74 00) gets
-    eaten, leaving an odd-length buffer.  The utf-16 codec then cannot decode
-    the final codepoint and emits U+FFFD instead.
-
-    The correct approach is to strip only complete 0x0000 PAIRS — which are
-    genuine null padding — and leave the data byte-aligned.
-
-    UTF-16BE (enc=2) does NOT need this treatment: in BE the low byte (the
-    char value) comes last, so for ASCII chars it is non-zero and rstrip
-    never touches it.
-    """
     while len(b) >= 2 and b[-2:] == b'\x00\x00':
         b = b[:-2]
     return b
 
 def _read_frame_text(data, frame_id, version):
-    """
-    Read a standard text frame (TIT2, TPE1, TALB, etc.).
-
-    Encoding byte values (ID3v2.3/2.4 spec):
-        0 = ISO-8859-1 (Latin-1)
-        1 = UTF-16 with BOM
-        2 = UTF-16BE without BOM  (ID3v2.4 only)
-        3 = UTF-8
-
-    FIX A: loop condition changed from < to <= so the last frame in a tag
-    with no trailing padding (written by third-party tools) is not skipped.
-
-    FIX B: a frame with sz==0 is skipped with continue (pos advanced past
-    its 10-byte header) rather than breaking out of the loop, so subsequent
-    frames are not silently lost.
-    """
     pos = 10
-    while pos + 10 <= len(data):                      # FIX A: <= instead of <
+    while pos + 10 <= len(data):
         fid = data[pos:pos+4]
         if fid == b'\x00\x00\x00\x00':
             break
@@ -158,7 +125,7 @@ def _read_frame_text(data, frame_id, version):
             sz = _syncsafe_to_int(data[pos+4:pos+8])
         else:
             sz = struct.unpack('>I', data[pos+4:pos+8])[0]
-        if sz <= 0:                                    # FIX B: skip, don't break
+        if sz <= 0:
             pos += 10
             continue
         if pos + 10 + sz > len(data):
@@ -179,24 +146,8 @@ def _read_frame_text(data, frame_id, version):
     return ''
 
 def _read_comm_frame(data, version):
-    """
-    Read a COMM (comment) frame correctly.
-
-    COMM layout inside the frame payload:
-        1 byte   encoding
-        3 bytes  language (e.g. b'eng')
-        N bytes  content descriptor, null-terminated
-                   enc 0/3 → single \x00
-                   enc 1/2 → double \x00\x00
-        M bytes  actual comment text (same encoding)
-
-    FIX A: loop condition changed from < to <= (same rationale as
-    _read_frame_text).
-
-    FIX B: zero-size frames are skipped with continue instead of break.
-    """
     pos = 10
-    while pos + 10 <= len(data):                      # FIX A: <= instead of <
+    while pos + 10 <= len(data):
         fid = data[pos:pos+4]
         if fid == b'\x00\x00\x00\x00':
             break
@@ -204,7 +155,7 @@ def _read_comm_frame(data, version):
             sz = _syncsafe_to_int(data[pos+4:pos+8])
         else:
             sz = struct.unpack('>I', data[pos+4:pos+8])[0]
-        if sz <= 0:                                    # FIX B: skip, don't break
+        if sz <= 0:
             pos += 10
             continue
         if pos + 10 + sz > len(data):
@@ -213,11 +164,8 @@ def _read_comm_frame(data, version):
         if fid == b'COMM' and sz >= 4:
             payload = data[pos:pos+sz]
             enc  = payload[0]
-            # skip lang (3 bytes)
             rest = payload[4:]
-            # skip null-terminated descriptor
             if enc in (1, 2):
-                # UTF-16: descriptor terminated by \x00\x00
                 null_pos = 0
                 while null_pos + 1 < len(rest):
                     if rest[null_pos] == 0 and rest[null_pos+1] == 0:
@@ -226,11 +174,9 @@ def _read_comm_frame(data, version):
                     null_pos += 2
                 rest = rest[null_pos:]
             else:
-                # Latin-1 / UTF-8: descriptor terminated by single \x00
                 null_pos = rest.find(b'\x00')
                 if null_pos != -1:
                     rest = rest[null_pos+1:]
-            # Decode actual comment text.
             if enc == 1:
                 rest = _rstrip_utf16(rest)
             else:
@@ -293,62 +239,32 @@ def read_id3v2(path):
 # ------------------------------------------------------------------ ID3v2 write
 
 def _make_text_frame(frame_id, text):
-    """Create an ID3v2.3 text frame with UTF-8 encoding (enc=3)."""
     encoded = text.encode('utf-8')
-    payload = b'\x03' + encoded  # encoding byte + data
+    payload = b'\x03' + encoded
     size = struct.pack('>I', len(payload))
     flags = b'\x00\x00'
     return frame_id.encode() + size + flags + payload
 
 def _make_comm_frame(text):
-    """
-    Create an ID3v2.3 COMM frame with UTF-8 encoding.
-
-    COMM payload layout (ID3v2.3 §4.10):
-        encoding  (1 byte)   — 0x03 = UTF-8
-        language  (3 bytes)  — e.g. b'eng' (not null-terminated)
-        content descriptor   — null-terminated string; empty = single b'\x00'
-        text                 — the actual comment bytes
-    """
     encoded = text.encode('utf-8')
     payload = b'\x03' + b'eng' + b'\x00' + encoded
     size = struct.pack('>I', len(payload))
     return b'COMM' + size + b'\x00\x00' + payload
 
 def write_id3v2(path, tag):
-    """
-    Rewrite ID3v2.3 tags in the file keeping all audio data intact.
-
-    Uses an atomic write strategy — data is written to a sibling temp file
-    in the same directory, then os.replace() swaps it in place.
-
-    FIX D: both TYER (ID3v2.3) and TDRC (ID3v2.4) are now written for the
-    year field, so players that only understand the ID3v2.4 TDRC frame still
-    see the correct year after a save.
-    """
     try:
         with open(path, 'rb') as f:
             header = f.read(10)
-
-        # Determine where audio data starts
         if header[:3] == b'ID3':
             old_tag_size = _syncsafe_to_int(header[6:10]) + 10
         else:
             old_tag_size = 0
-
-        # Read audio data (everything after the old v2 tag)
         with open(path, 'rb') as f:
             f.seek(old_tag_size)
             audio_data = f.read()
-
-        # Strip any ID3v1 tag from end of audio data
         if len(audio_data) >= 128 and audio_data[-128:-125] == b'TAG':
             audio_data = audio_data[:-128]
-
-        # Build new frames
         frames = b''
-
-        # Standard text frames (ID3v2.3 names)
         text_fields = {
             'title':   'TIT2',
             'artist':  'TPE1',
@@ -361,26 +277,16 @@ def write_id3v2(path, tag):
             val = str(tag.get(key, '') or '')
             if val:
                 frames += _make_text_frame(fid, val)
-
-        # FIX D: also write TDRC (ID3v2.4 year frame) so that players
-        # which only understand ID3v2.4 tags still find the year field.
         year_val = str(tag.get('year', '') or '')
         if year_val:
             frames += _make_text_frame('TDRC', year_val)
-
         comment = str(tag.get('comment', '') or '')
         if comment:
             frames += _make_comm_frame(comment)
-
-        # Add padding
         padding = b'\x00' * 256
-
-        # ID3v2.3 header
         tag_content = frames + padding
         tag_size = _int_to_syncsafe(len(tag_content))
         new_header = b'ID3' + b'\x03\x00' + b'\x00' + tag_size
-
-        # Build ID3v1 tag for backwards compatibility
         def enc(s, n):
             b = str(s).encode("latin-1", errors="replace")[:n]
             return b.ljust(n, bytes([0]))
@@ -399,8 +305,6 @@ def write_id3v2(path, tag):
         genre_name = tag.get("genre","")
         gi = GENRES.index(genre_name) if genre_name in GENRES else 255
         v1 += bytes([gi])
-
-        # Atomic write via temp file in the same directory
         dir_name = os.path.dirname(os.path.abspath(path))
         fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
         try:
@@ -416,7 +320,6 @@ def write_id3v2(path, tag):
             except OSError:
                 pass
             raise
-
         return True
     except Exception as e:
         print(f'write_id3v2 error: {e}')
@@ -437,14 +340,9 @@ def read_tags(path):
     return tag
 
 def write_tags(path, tag):
-    """Write ID3v2.3 + ID3v1 tags."""
     return write_id3v2(path, tag)
 
 def sanitize_filename(s):
-    """
-    Remove characters that are illegal or problematic in filenames.
-    Also strips ASCII control characters (0x00-0x1f).
-    """
     for c in r'/\:*?"<>|':
         s = s.replace(c, '_')
     s = re.sub(r'[\x00-\x1f]', '', s)
@@ -460,20 +358,16 @@ def build_filename(pattern, tag, ext):
     track_val = tag.get('track','')
     result = result.replace('%track%',  track_val.zfill(2) if track_val else '')
     result = result.replace('%ext%',    ext                                     )
-
     if ext and result.lower().endswith(ext.lower()):
         stem = result[:-len(ext)]
     else:
         stem = result
-
     prev = None
     while prev != stem:
         prev = stem
         stem = re.sub(r' *- *- *', ' - ', stem)
-
     stem = re.sub(r'[ _-]+$', '', stem)
     stem = re.sub(r'^[ _-]+', '', stem)
     stem = re.sub(r' {2,}', ' ', stem)
     stem = stem.strip()
-
     return stem + ext
